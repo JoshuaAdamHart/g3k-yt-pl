@@ -19,7 +19,8 @@ try:
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
 except ImportError:
-    print("Required packages not installed. Run: make setup")
+    print("Required packages not installed. Please run:")
+    print("make setup")
     sys.exit(1)
 
 SCOPES = ['https://www.googleapis.com/auth/youtube']
