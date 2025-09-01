@@ -23,4 +23,4 @@ Thumbs.db
 # Project specific
 token.json
 credentials.json
-*.json
+json_cache/

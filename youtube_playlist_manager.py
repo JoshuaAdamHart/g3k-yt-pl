@@ -48,10 +48,13 @@ class YouTubeManager:
     def __init__(self, credentials_file: str = 'credentials.json'):
         self.credentials_file = credentials_file
         self.token_file = 'token.json'
-        self.cache_file = 'cache.json'
+        os.makedirs('json_cache', exist_ok=True)
+        self.cache_file = 'json_cache/cache.json'
+        self.channel_cache_file = 'json_cache/channels.json'
         self.youtube = None
         self.quota = QuotaTracker()
         self.cache = self._load_cache()
+        self.channel_cache = self._load_channel_cache()
         
     def _load_cache(self) -> Dict[str, Any]:
         if os.path.exists(self.cache_file):
@@ -62,12 +65,28 @@ class YouTubeManager:
                 pass
         return {'channels': {}, 'last_run': None}
     
+    def _load_channel_cache(self) -> Dict[str, str]:
+        if os.path.exists(self.channel_cache_file):
+            try:
+                with open(self.channel_cache_file, 'r') as f:
+                    return json.load(f)
+            except:
+                pass
+        return {}
+    
     def _save_cache(self):
         try:
             with open(self.cache_file, 'w') as f:
                 json.dump(self.cache, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save cache: {e}")
+    
+    def _save_channel_cache(self):
+        try:
+            with open(self.channel_cache_file, 'w') as f:
+                json.dump(self.channel_cache, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save channel cache: {e}")
     
     def authenticate(self) -> bool:
         creds = None
@@ -98,10 +117,18 @@ class YouTubeManager:
         if channel_input.startswith('UC') and len(channel_input) == 24:
             return channel_input
         
+        # Check cache first
+        if channel_input in self.channel_cache:
+            print(f"📦 Using cached channel ID for: {channel_input}")
+            return self.channel_cache[channel_input]
+        
         # Extract from URL
         if 'youtube.com' in channel_input:
             if '/channel/' in channel_input:
-                return channel_input.split('/channel/')[-1].split('/')[0]
+                channel_id = channel_input.split('/channel/')[-1].split('/')[0]
+                self.channel_cache[channel_input] = channel_id
+                self._save_channel_cache()
+                return channel_id
         
         # Search by name (expensive - 100 quota units)
         if not self.quota.can_afford(100):
@@ -118,7 +145,12 @@ class YouTubeManager:
             self.quota.add_cost(100)
             
             if response['items']:
-                return response['items'][0]['snippet']['channelId']
+                channel_id = response['items'][0]['snippet']['channelId']
+                # Cache the result
+                self.channel_cache[channel_input] = channel_id
+                self._save_channel_cache()
+                print(f"💾 Cached channel mapping: {channel_input} -> {channel_id}")
+                return channel_id
         except HttpError as e:
             if 'quotaExceeded' in str(e):
                 print("⚠️ API quota exceeded during channel search")
