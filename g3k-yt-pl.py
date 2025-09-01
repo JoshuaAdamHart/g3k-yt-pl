@@ -45,7 +45,7 @@ class QuotaTracker:
     def remaining(self) -> int:
         return max(0, self.limit - self.used)
 
-class YouTubeManager:
+class G3kYouTubePlaylistManager:
     def __init__(self, credentials_file: str = 'credentials.json'):
         self.credentials_file = credentials_file
         self.token_file = 'token.json'
@@ -483,7 +483,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        manager = YouTubeManager(args.credentials)
+        manager = G3kYouTubePlaylistManager(args.credentials)
         manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
