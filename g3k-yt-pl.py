@@ -1,6 +1,13 @@
 #!/usr/bin/env ./venv/bin/python
 """
-YouTube Playlist Manager - Streamlined
+G3K YouTube Playlist Manager
+A Vibe-coded Python project by Joshua Adam Hart
+
+Final project for Stanford Continuing Studios course:
+TECH 152 A Crash Course in Artificial Intelligence
+Instructor: Ronjon Nag
+https://continuingstudies.stanford.edu/
+
 Add videos from multiple channels to a playlist with date filtering and quota tracking.
 """
 
@@ -473,7 +480,7 @@ class G3kYouTubePlaylistManager:
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     
-    parser = argparse.ArgumentParser(description='YouTube Playlist Manager')
+    parser = argparse.ArgumentParser(description='G3K YouTube Playlist Manager')
     parser.add_argument('channels', nargs='+', help='YouTube channels (names, URLs, or IDs)')
     parser.add_argument('--playlist-title', '-t', required=True, help='Playlist title')
     parser.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
