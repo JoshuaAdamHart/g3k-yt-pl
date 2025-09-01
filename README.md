@@ -1,215 +1,166 @@
 # YouTube Playlist Manager
 
-A minimal Python command-line application that authenticates with your Google account and creates YouTube playlists from ALL videos across multiple channels, sorted chronologically (oldest first). **Now with intelligent caching to avoid unnecessary API calls!**
+A streamlined Python CLI tool that adds videos from multiple YouTube channels to a playlist with intelligent date filtering, quota tracking, and graceful failure handling.
+
+## Features
+
+- **Add videos to playlists** from multiple channels
+- **Date range filtering** - specify start/end dates for videos
+- **Smart caching** - avoids unnecessary API calls
+- **Quota tracking** - monitors API usage and fails gracefully
+- **Incremental updates** - checks for new videos since last run
+- **Duplicate prevention** - skips videos already in playlist
+- **Graceful interruption** - Ctrl+C stops safely
+
+## Quick Start
+
+```bash
+# Setup
+make setup
+
+# Add recent videos from channels to a playlist
+make run ARGS='--playlist-title "Tech News" --start-date 2024-01-01 "MKBHD" "Linus Tech Tips"'
+```
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Clone and Install
 ```bash
-pip install -r requirements.txt
+git clone <repo-url>
+cd yt-pl
+make setup
 ```
 
 ### 2. Get YouTube API Credentials
 
-1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the YouTube Data API v3:
-   - Go to "APIs & Services" > "Library"
-   - Search for "YouTube Data API v3"
-   - Click on it and press "Enable"
-4. Create credentials:
-   - Go to "APIs & Services" > "Credentials"
-   - Click "Create Credentials" > "OAuth client ID"
-   - Choose "Desktop application"
-   - Download the JSON file and save it as `credentials.json` in the same directory as the script
-
-### 3. Make the Script Executable (Optional)
-```bash
-chmod +x youtube_playlist_manager.py
-```
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project and enable YouTube Data API v3
+3. Create OAuth 2.0 credentials for "Desktop application"
+4. Download as `credentials.json` in this directory
 
 ## Usage
 
 ### Basic Usage
 ```bash
-python youtube_playlist_manager.py --playlist-title "My Playlist" channel1 channel2 channel3
+python youtube_playlist_manager.py --playlist-title "My Playlist" channel1 channel2
 ```
 
-### Examples
-
-**Using channel names:**
+### Date Filtering
 ```bash
-python youtube_playlist_manager.py --playlist-title "Tech Videos" "Linus Tech Tips" "MKBHD" "Unbox Therapy"
+# Videos from specific date range
+python youtube_playlist_manager.py \
+  --playlist-title "Recent Tech" \
+  --start-date 2024-01-01 \
+  --end-date 2024-12-31 \
+  "MKBHD" "Linus Tech Tips"
+
+# Videos from last month
+python youtube_playlist_manager.py \
+  --playlist-title "Last Month" \
+  --start-date 2024-11-01 \
+  "channel1" "channel2"
 ```
 
-**Using channel URLs:**
+### Channel Input Formats
 ```bash
-python youtube_playlist_manager.py --playlist-title "Gaming Content" \
-  "https://www.youtube.com/@PewDiePie" \
-  "https://www.youtube.com/c/Markiplier"
-```
+# Channel names
+python youtube_playlist_manager.py -t "Gaming" "PewDiePie" "Markiplier"
 
-**Using channel IDs:**
-```bash
-python youtube_playlist_manager.py --playlist-title "Educational" \
+# Channel URLs
+python youtube_playlist_manager.py -t "Tech" \
+  "https://www.youtube.com/@MKBHD" \
+  "https://www.youtube.com/c/LinusTechTips"
+
+# Channel IDs
+python youtube_playlist_manager.py -t "Educational" \
   "UC2C_jShtL725hvbm1arSV9w" \
   "UCsXVk37bltHxD1rDPwtNM8Q"
 ```
 
-### Cache Management
-
-**Show cache information:**
+### Makefile Commands
 ```bash
-python youtube_playlist_manager.py --show-cache
+make setup          # Create venv and install dependencies
+make run ARGS="..."  # Run with arguments
+make clean           # Remove venv and cache files
+make help            # Show available commands
 ```
 
-**Clear video metadata cache:**
-```bash
-python youtube_playlist_manager.py --clear-cache
-```
+## How It Works
 
-**Clear channel ID cache:**
-```bash
-python youtube_playlist_manager.py --clear-channel-cache
-```
+1. **Authentication**: Uses OAuth 2.0 to access your YouTube account
+2. **Channel Processing**: Converts channel names/URLs to IDs (cached to save quota)
+3. **Video Fetching**: Gets all videos from each channel (with date filtering)
+4. **Caching**: Stores results locally to avoid repeated API calls
+5. **Playlist Management**: Creates playlist or uses existing one
+6. **Smart Adding**: Skips duplicates, adds in chronological order
+7. **Quota Tracking**: Monitors API usage and stops before hitting limits
 
-**Repopulate channel cache from video cache:**
-```bash
-python youtube_playlist_manager.py --repopulate-channel-cache
-```
+## Quota Management
 
-**Force refresh specific channels (ignore cache):**
-```bash
-python youtube_playlist_manager.py --force-refresh --playlist-title "Fresh Data" "MKBHD" "Linus Tech Tips"
-```
+The YouTube API has a daily quota limit (10,000 units). This tool tracks usage:
 
-**Force creation of new playlist:**
-```bash
-python youtube_playlist_manager.py --force-new-playlist --playlist-title "Tech Videos" "MKBHD" "Linus Tech Tips"
-```
+- Channel search: 100 units
+- Get channel info: 1 unit  
+- Get playlist videos: 1 unit per page (50 videos)
+- Add video to playlist: 50 units
+- Create playlist: 50 units
 
-**Custom cache settings:**
-```bash
-python youtube_playlist_manager.py --cache-hours 336 --cache-file "my_cache.json" --playlist-title "My Playlist" channel1
-```
-
-### Command Line Options
-
-- `channels`: One or more YouTube channels (names, URLs, or IDs)
-- `--playlist-title, -t`: Title for the new playlist (required for creating playlists)
-- `--credentials, -c`: Path to credentials file (default: credentials.json)
-- `--cache-file`: Path to video cache file (default: video_cache.json)
-- `--cache-hours`: Cache expiry time in hours (default: 168 = 1 week)
-- `--clear-cache`: Clear the video metadata cache
-- `--clear-channel-cache`: Clear the channel ID cache
-- `--repopulate-channel-cache`: Repopulate channel cache from video cache
-- `--show-cache`: Show cache information
-- `--force-refresh`: Force refresh cache for specified channels
-- `--force-new-playlist`: Create new playlist even if one with same name exists
-
-## Features
-
-- **Google OAuth Authentication**: Secure authentication with your Google account
-- **Multiple Channel Support**: Add videos from multiple channels at once
-- **All Videos**: Fetches ALL videos from each specified channel (no limits)
-- **Flexible Channel Input**: Accepts channel names, URLs, or IDs
-- **Chronological Sorting**: All videos are sorted by publication date (oldest first)
-- **Simple Insertion**: Videos are added to the end of the playlist in publication order
-- **Rate Limiting**: Built-in delays to respect YouTube API limits
-- **Error Handling**: Graceful handling of missing channels or API errors
-- **Progress Tracking**: Shows progress while adding videos
-- **🆕 Intelligent Caching**: Caches video metadata to avoid repeated API calls
-- **🆕 Cache Management**: Tools to view, clear, and refresh cached data
-- **🆕 Enhanced Metadata**: Stores additional video information (descriptions, thumbnails)
-- **🆕 Smart Playlist Management**: Uses existing playlists instead of creating duplicates
-- **🆕 Duplicate Prevention**: Skips videos already in the target playlist
-- **🆕 Quota-Conscious**: Simplified insertion logic to minimize API quota usage
+The tool will stop gracefully when approaching quota limits and suggest running again tomorrow.
 
 ## Caching System
 
-The application now includes an intelligent caching system that:
+- **Channel cache**: Maps channel names to IDs (avoids expensive searches)
+- **Video cache**: Stores video metadata for 24 hours
+- **Last run tracking**: Automatically checks for new videos since last execution
 
-- **Saves API calls**: Stores video metadata locally to avoid re-fetching the same data
-- **Configurable expiry**: Cache expires after 1 week by default (customizable)
-- **Automatic refresh**: Expired cache is automatically refreshed when needed
-- **Cache persistence**: Data is stored in `video_cache.json` and persists between runs
-- **Enhanced metadata**: Caches additional information like descriptions and thumbnails
-- **Smart validation**: Only fetches new data when cache is expired or missing
-- **🆕 Channel ID caching**: Separate cache for channel IDs to avoid expensive search API calls
-- **🆕 Manual editing**: Edit `channel_cache.json` to add channel mappings by hand
+Cache files:
+- `cache.json` - Video metadata and timestamps
+- `token.json` - Authentication tokens
 
-### Channel ID Cache
+## Error Handling
 
-To avoid expensive API search calls (100 quota units each!), the script maintains a separate `channel_cache.json` file that maps channel names/URLs to channel IDs. You can edit this file manually:
+- **Quota exceeded**: Stops gracefully, shows progress, suggests retry time
+- **Network errors**: Retries with backoff
+- **Missing channels**: Skips and continues with others
+- **Interrupted execution**: Ctrl+C stops safely, progress is saved
 
-```json
-{
-  "_comment": "This file maps channel names/URLs to channel IDs to avoid expensive API searches.",
-  "_instructions": "Add entries like: 'Channel Name': 'UC1234567890abcdef'",
-  "MKBHD": "UCBJycsmduvYEL83R_U4JriQ",
-  "Linus Tech Tips": "UCXuqSBlHAE6Xw-yeJA0Tunw",
-  "https://www.youtube.com/@PewDiePie": "UC-lHJZR3Gqxm24_Vd_AJ5Yw"
-}
-```
+## Files Created
 
-### Cache File Structure
-```json
-{
-  "channels": {
-    "UC_channel_id": [
-      {
-        "video_id": "video123",
-        "title": "Video Title",
-        "published_at": "2023-01-01T12:00:00Z",
-        "channel_title": "Channel Name",
-        "channel_id": "UC_channel_id",
-        "description": "Video description...",
-        "thumbnail_url": "https://..."
-      }
-    ]
-  },
-  "last_updated": {
-    "UC_channel_id": "2023-01-01T12:00:00.000000"
-  }
-}
-```
-
-## First Run
-
-On the first run, the script will:
-1. Open your web browser for Google authentication
-2. Ask for permission to manage your YouTube account
-3. Save authentication tokens for future use (in `token.json`)
-4. Create a cache file (`video_cache.json`) to store video metadata
-
-## Notes
-
-- The created playlist will be private by default
-- The script fetches ALL videos from each channel (no video count limits)
-- Videos are added to the end of the playlist in chronological order by publish date
-- The script respects YouTube API rate limits with built-in delays
-- Individual video insertions (50 quota units each) are done sequentially
-- If a channel can't be found, it will be skipped with a warning
-- The script will continue processing other channels even if one fails
-- **Videos are added directly to the end of the playlist** (simplified insertion logic)
-- **Duplicate videos are automatically skipped to avoid re-adding existing content**
-- **Cached data significantly reduces API usage and improves performance on subsequent runs**
-- Cache automatically expires and refreshes to ensure data freshness
+- `token.json` - OAuth tokens (auto-generated)
+- `cache.json` - Video and channel cache
+- `.gitignore` - Excludes sensitive files from git
 
 ## Troubleshooting
 
-**"credentials.json not found"**: Make sure you've downloaded the OAuth credentials from Google Cloud Console
+**"credentials.json not found"**: Download OAuth credentials from Google Cloud Console
 
-**"Channel not found"**: Try using the full channel URL or channel ID instead of just the name
+**"Channel not found"**: Try using full URL or channel ID instead of name
 
-**Rate limiting errors**: The script includes delays, but if you hit limits, wait a few minutes and try again
+**"Quota exceeded"**: Wait until tomorrow or use a different API key
 
 **Authentication errors**: Delete `token.json` and re-run to re-authenticate
 
-**Large channels**: For channels with thousands of videos, the process may take several minutes to complete
+## Example Workflows
 
-**Cache issues**: Use `--clear-cache` to reset cached data or `--show-cache` to inspect cache status
+### Daily Tech News Playlist
+```bash
+# First run - gets all videos from 2024
+python youtube_playlist_manager.py \
+  --playlist-title "Daily Tech" \
+  --start-date 2024-01-01 \
+  "MKBHD" "Linus Tech Tips" "Unbox Therapy"
 
-**Stale data**: Use `--force-refresh` to ignore cache and fetch fresh data from YouTube API
+# Subsequent runs - only gets new videos since last run
+python youtube_playlist_manager.py \
+  --playlist-title "Daily Tech" \
+  "MKBHD" "Linus Tech Tips" "Unbox Therapy"
+```
 
-**Quota exhaustion**: The simplified insertion logic uses fewer API calls, but large operations may still hit daily quotas
+### Monthly Gaming Highlights
+```bash
+python youtube_playlist_manager.py \
+  --playlist-title "Gaming Nov 2024" \
+  --start-date 2024-11-01 \
+  --end-date 2024-11-30 \
+  "PewDiePie" "Markiplier" "GameGrumps"
+```
