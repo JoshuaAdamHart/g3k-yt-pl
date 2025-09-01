@@ -42,20 +42,20 @@ make setup
 
 ### Basic Usage
 ```bash
-python youtube_playlist_manager.py --playlist-title "My Playlist" channel1 channel2
+python g3k-yt-pl.py --playlist-title "My Playlist" channel1 channel2
 ```
 
 ### Date Filtering
 ```bash
 # Videos from specific date range
-python youtube_playlist_manager.py \
+python g3k-yt-pl.py \
   --playlist-title "Recent Tech" \
   --start-date 2024-01-01 \
   --end-date 2024-12-31 \
   "MKBHD" "Linus Tech Tips"
 
 # Videos from last month
-python youtube_playlist_manager.py \
+python g3k-yt-pl.py \
   --playlist-title "Last Month" \
   --start-date 2024-11-01 \
   "channel1" "channel2"
@@ -64,15 +64,15 @@ python youtube_playlist_manager.py \
 ### Channel Input Formats
 ```bash
 # Channel names
-python youtube_playlist_manager.py -t "Gaming" "PewDiePie" "Markiplier"
+python g3k-yt-pl.py -t "Gaming" "PewDiePie" "Markiplier"
 
 # Channel URLs
-python youtube_playlist_manager.py -t "Tech" \
+python g3k-yt-pl.py -t "Tech" \
   "https://www.youtube.com/@MKBHD" \
   "https://www.youtube.com/c/LinusTechTips"
 
 # Channel IDs
-python youtube_playlist_manager.py -t "Educational" \
+python g3k-yt-pl.py -t "Educational" \
   "UC2C_jShtL725hvbm1arSV9w" \
   "UCsXVk37bltHxD1rDPwtNM8Q"
 ```
@@ -114,7 +114,8 @@ The tool will stop gracefully when approaching quota limits and suggest running 
 - **Last run tracking**: Automatically checks for new videos since last execution
 
 Cache files:
-- `cache.json` - Video metadata and timestamps
+- `json_cache/cache.json` - Video metadata and timestamps
+- `json_cache/channels.json` - Channel name to ID mappings
 - `token.json` - Authentication tokens
 
 ## Error Handling
@@ -145,20 +146,20 @@ Cache files:
 ### Daily Tech News Playlist
 ```bash
 # First run - gets all videos from 2024
-python youtube_playlist_manager.py \
+python g3k-yt-pl.py \
   --playlist-title "Daily Tech" \
   --start-date 2024-01-01 \
   "MKBHD" "Linus Tech Tips" "Unbox Therapy"
 
 # Subsequent runs - only gets new videos since last run
-python youtube_playlist_manager.py \
+python g3k-yt-pl.py \
   --playlist-title "Daily Tech" \
   "MKBHD" "Linus Tech Tips" "Unbox Therapy"
 ```
 
 ### Monthly Gaming Highlights
 ```bash
-python youtube_playlist_manager.py \
+python g3k-yt-pl.py \
   --playlist-title "Gaming Nov 2024" \
   --start-date 2024-11-01 \
   --end-date 2024-11-30 \

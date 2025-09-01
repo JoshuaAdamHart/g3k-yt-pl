@@ -9,7 +9,7 @@ install: ## Install dependencies in existing environment
 	pip install -r requirements.txt
 
 run: ## Run the playlist manager (requires ARGS="--playlist-title 'Title' channel1 channel2")
-	./venv/bin/python youtube_playlist_manager.py $(ARGS)
+	./venv/bin/python g3k-yt-pl.py $(ARGS)
 
 clean: ## Remove virtual environment and cache files
 	rm -rf venv/
