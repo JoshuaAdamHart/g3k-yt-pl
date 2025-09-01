@@ -3,7 +3,7 @@
 G3K YouTube Playlist Manager
 A Vibe-coded Python project by Joshua Adam Hart
 
-Final project for Stanford Continuing Studios course:
+Final project for Stanford Continuing Studies course:
 TECH 152 A Crash Course in Artificial Intelligence
 Instructor: Ronjon Nag
 https://continuingstudies.stanford.edu/
