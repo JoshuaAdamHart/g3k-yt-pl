@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env ./venv/bin/python
 """
 YouTube Playlist Manager - Streamlined
 Add videos from multiple channels to a playlist with date filtering and quota tracking.
