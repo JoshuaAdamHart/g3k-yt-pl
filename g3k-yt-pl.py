@@ -221,10 +221,11 @@ class G3kYouTubePlaylistManager:
                 for item in playlist_response['items']:
                     video_date = item['snippet']['publishedAt']
                     
-                    # Filter by date if specified
-                    if since_date:
-                        if video_date < since_date:
-                            continue
+                    # Stop fetching if we've gone past our start date (videos are newest first)
+                    if since_date and video_date < since_date:
+                        print(f"📅 Reached videos older than {since_date[:10]}, stopping fetch")
+                        next_page_token = None  # Stop pagination
+                        break
                     
                     videos.append({
                         'video_id': item['snippet']['resourceId']['videoId'],
