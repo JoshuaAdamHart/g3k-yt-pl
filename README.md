@@ -56,7 +56,19 @@ make setup
 
 ## Usage
 
-### Basic Usage
+### JSON Config Mode (Recommended)
+```bash
+# Update all playlists from config
+./update-all.sh
+
+# Update specific playlist
+python g3k-yt-pl.py --config playlists.json --playlist nerds
+
+# Use custom config file
+python g3k-yt-pl.py --config my-playlists.json --playlist tech
+```
+
+### Basic Usage (Legacy)
 ```bash
 python g3k-yt-pl.py --playlist-title "My Playlist" channel1 channel2
 ```
@@ -93,10 +105,35 @@ python g3k-yt-pl.py -t "Educational" \
   "UCsXVk37bltHxD1rDPwtNM8Q"
 ```
 
+## JSON Configuration
+
+Create a `playlists.json` file to define multiple playlists:
+
+```json
+{
+  "playlists": {
+    "tech": {
+      "title": "Tech News",
+      "channels": ["MKBHD", "Linus Tech Tips"],
+      "default_start_date": "2024-01-01"
+    },
+    "gaming": {
+      "title": "Gaming Videos", 
+      "channels": ["PewDiePie", "Markiplier"],
+      "default_start_date": "2024-06-01"
+    }
+  }
+}
+```
+
+The system automatically tracks when each playlist was last updated and uses that timestamp (minus 1 day) as the start date for subsequent runs. The `default_start_date` is only used for the first run of each playlist.
+
 ### Makefile Commands
 ```bash
 make setup          # Create venv and install dependencies
-make run ARGS="..."  # Run with arguments
+make update-all      # Update all playlists from config
+make run-config PLAYLIST=name  # Update specific playlist
+make run ARGS="..."  # Run with arguments (legacy mode)
 make clean           # Remove venv and cache files
 make help            # Show available commands
 ```
@@ -144,7 +181,8 @@ Cache files:
 ## Files Created
 
 - `token.json` - OAuth tokens (auto-generated)
-- `cache.json` - Video and channel cache
+- `json_cache/cache.json` - Video and channel cache
+- `json_cache/playlist_timestamps.json` - Per-playlist last update timestamps
 - `.gitignore` - Excludes sensitive files from git
 
 ## Troubleshooting

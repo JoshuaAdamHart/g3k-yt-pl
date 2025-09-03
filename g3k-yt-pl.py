@@ -477,21 +477,93 @@ class G3kYouTubePlaylistManager:
         print(f"\n🎉 Complete! Added {added_count} videos to '{playlist_title}'")
         print(f"📊 Quota used: {self.quota.used}/{self.quota.limit} ({self.quota.remaining()} remaining)")
 
+def load_playlist_config(config_file: str) -> Dict[str, Any]:
+    """Load playlist configuration from JSON file."""
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Config file {config_file} not found")
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"❌ Invalid JSON in {config_file}: {e}")
+        sys.exit(1)
+
+def load_playlist_timestamps(timestamp_file: str) -> Dict[str, str]:
+    """Load per-playlist last update timestamps."""
+    try:
+        with open(timestamp_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+def save_playlist_timestamps(timestamp_file: str, timestamps: Dict[str, str]):
+    """Save per-playlist last update timestamps."""
+    with open(timestamp_file, 'w') as f:
+        json.dump(timestamps, f, indent=2)
+
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     parser = argparse.ArgumentParser(description='G3K YouTube Playlist Manager')
-    parser.add_argument('channels', nargs='+', help='YouTube channels (names, URLs, or IDs)')
-    parser.add_argument('--playlist-title', '-t', required=True, help='Playlist title')
+    parser.add_argument('--config', '-c', default='playlists.json', help='JSON config file with playlist definitions')
+    parser.add_argument('--playlist', '-p', help='Process only this specific playlist from config')
+    parser.add_argument('--credentials', default='credentials.json', help='Credentials file path')
+    # Legacy mode support
+    parser.add_argument('channels', nargs='*', help='YouTube channels (legacy mode)')
+    parser.add_argument('--playlist-title', '-t', help='Playlist title (legacy mode)')
     parser.add_argument('--start-date', help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
-    parser.add_argument('--credentials', default='credentials.json', help='Credentials file path')
     
     args = parser.parse_args()
     
     try:
         manager = G3kYouTubePlaylistManager(args.credentials)
-        manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
+        
+        # Legacy mode
+        if args.channels and args.playlist_title:
+            manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
+            return
+        
+        # Config mode
+        config = load_playlist_config(args.config)
+        timestamp_file = 'json_cache/playlist_timestamps.json'
+        timestamps = load_playlist_timestamps(timestamp_file)
+        
+        playlists_to_process = [args.playlist] if args.playlist else config['playlists'].keys()
+        
+        for playlist_name in playlists_to_process:
+            if playlist_name not in config['playlists']:
+                print(f"❌ Playlist '{playlist_name}' not found in config")
+                continue
+                
+            playlist_config = config['playlists'][playlist_name]
+            
+            # Use timestamp as start date if no explicit start date provided
+            start_date = args.start_date
+            if not start_date and playlist_name in timestamps:
+                # Use yesterday's date from last timestamp to ensure overlap
+                last_update = datetime.fromisoformat(timestamps[playlist_name])
+                start_date = (last_update - timedelta(days=1)).strftime('%Y-%m-%d')
+            elif not start_date:
+                start_date = playlist_config.get('default_start_date', '2025-08-01')
+            
+            print(f"\n🎵 Processing playlist: {playlist_config['title']}")
+            print(f"📅 Start date: {start_date}")
+            
+            manager.process_channels(
+                playlist_config['channels'], 
+                playlist_config['title'], 
+                start_date, 
+                args.end_date
+            )
+            
+            # Update timestamp
+            timestamps[playlist_name] = datetime.now().isoformat()
+            save_playlist_timestamps(timestamp_file, timestamps)
+            
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
     except Exception as e:
