@@ -403,10 +403,10 @@ class G3kYouTubePlaylistManager:
         return added_count
     
     def process_channels(self, channels: List[str], playlist_title: str, 
-                        start_date: Optional[str] = None, end_date: Optional[str] = None):
+                        start_date: Optional[str] = None, end_date: Optional[str] = None) -> bool:
         
         if not self.authenticate():
-            return
+            return False
         
         # Convert dates to ISO format if needed
         since_date = None
@@ -419,7 +419,7 @@ class G3kYouTubePlaylistManager:
                 print(f"📅 Filtering videos from: {start_date}")
             except:
                 print(f"❌ Invalid start date format: {start_date}")
-                return
+                return False
         
         # Check for new videos since last run
         if not start_date and self.cache.get('last_run'):
@@ -432,7 +432,7 @@ class G3kYouTubePlaylistManager:
         # Get or create playlist
         playlist_id = self.get_or_create_playlist(playlist_title)
         if not playlist_id:
-            return
+            return False
         
         # Get existing videos to avoid duplicates
         existing_ids = self.get_existing_videos(playlist_id)
@@ -460,7 +460,7 @@ class G3kYouTubePlaylistManager:
         
         if not all_videos:
             print("📝 No videos found")
-            return
+            return False
         
         # Sort by publication date and add to playlist
         all_videos.sort(key=lambda x: x['published_at'])
@@ -470,12 +470,18 @@ class G3kYouTubePlaylistManager:
         
         added_count = self.add_videos_to_playlist(playlist_id, all_videos, existing_ids)
         
+        # Check if quota was exceeded during video addition
+        if self.quota.used >= self.quota.limit:
+            print("⚠️ Quota exceeded - not updating cache timestamp")
+            return False
+        
         # Update last run timestamp
         self.cache['last_run'] = datetime.now().isoformat()
         self._save_cache()
         
         print(f"\n🎉 Complete! Added {added_count} videos to '{playlist_title}'")
         print(f"📊 Quota used: {self.quota.used}/{self.quota.limit} ({self.quota.remaining()} remaining)")
+        return True
 
 def load_playlist_config(config_file: str) -> Dict[str, Any]:
     """Load playlist configuration from JSON file."""
@@ -553,16 +559,19 @@ def main():
             print(f"\n🎵 Processing playlist: {playlist_config['title']}")
             print(f"📅 Start date: {start_date}")
             
-            manager.process_channels(
+            success = manager.process_channels(
                 playlist_config['channels'], 
                 playlist_config['title'], 
                 start_date, 
                 args.end_date
             )
             
-            # Update timestamp
-            timestamps[playlist_name] = datetime.now().isoformat()
-            save_playlist_timestamps(timestamp_file, timestamps)
+            # Only update timestamp if processing was successful
+            if success:
+                timestamps[playlist_name] = datetime.now().isoformat()
+                save_playlist_timestamps(timestamp_file, timestamps)
+            else:
+                print(f"⚠️ Skipping timestamp update for {playlist_name} due to errors")
             
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
