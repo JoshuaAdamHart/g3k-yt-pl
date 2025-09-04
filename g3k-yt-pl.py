@@ -218,13 +218,14 @@ class G3kYouTubePlaylistManager:
                 ).execute()
                 self.quota.add_cost(1)
                 
+                stop_fetching = False
                 for item in playlist_response['items']:
                     video_date = item['snippet']['publishedAt']
                     
                     # Stop fetching if we've gone past our start date (videos are newest first)
                     if since_date and video_date < since_date:
                         print(f"📅 Reached videos older than {since_date[:10]}, stopping fetch")
-                        next_page_token = None  # Stop pagination
+                        stop_fetching = True
                         break
                     
                     videos.append({
@@ -235,6 +236,9 @@ class G3kYouTubePlaylistManager:
                         'channel_id': channel_id
                     })
                 
+                if stop_fetching:
+                    break
+                    
                 next_page_token = playlist_response.get('nextPageToken')
                 if not next_page_token:
                     break
