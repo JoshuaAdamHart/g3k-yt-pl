@@ -500,6 +500,28 @@ def load_playlist_config(config_file: str) -> Dict[str, Any]:
         print(f"❌ Invalid JSON in {config_file}: {e}")
         sys.exit(1)
 
+def save_playlist_config(config_file: str, config: Dict[str, Any]):
+    """Save playlist configuration to JSON file."""
+    with open(config_file, 'w') as f:
+        json.dump(config, f, indent=2)
+
+def add_channel_to_playlist(config_file: str, playlist_name: str, channel: str):
+    """Add a channel to an existing playlist configuration."""
+    config = load_playlist_config(config_file)
+    
+    if playlist_name not in config['playlists']:
+        print(f"❌ Playlist '{playlist_name}' not found in config")
+        return False
+    
+    if channel not in config['playlists'][playlist_name]['channels']:
+        config['playlists'][playlist_name]['channels'].append(channel)
+        save_playlist_config(config_file, config)
+        print(f"✅ Added '{channel}' to playlist '{playlist_name}'")
+        return True
+    else:
+        print(f"ℹ️ Channel '{channel}' already in playlist '{playlist_name}'")
+        return False
+
 def load_playlist_timestamps(timestamp_file: str) -> Dict[str, str]:
     """Load per-playlist last update timestamps."""
     try:
@@ -519,8 +541,9 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     parser = argparse.ArgumentParser(description='G3K YouTube Playlist Manager')
-    parser.add_argument('--config', '-c', default='playlists.json', help='JSON config file with playlist definitions')
+    parser.add_argument('--config', '-c', default='json_cache/playlists.json', help='JSON config file with playlist definitions')
     parser.add_argument('--playlist', '-p', help='Process only this specific playlist from config')
+    parser.add_argument('--add-channel', help='Add a channel to the specified playlist (requires --playlist)')
     parser.add_argument('--credentials', default='credentials.json', help='Credentials file path')
     # Legacy mode support
     parser.add_argument('channels', nargs='*', help='YouTube channels (legacy mode)')
@@ -532,6 +555,14 @@ def main():
     
     try:
         manager = G3kYouTubePlaylistManager(args.credentials)
+        
+        # Add channel mode
+        if args.add_channel:
+            if not args.playlist:
+                print("❌ --playlist required when using --add-channel")
+                sys.exit(1)
+            add_channel_to_playlist(args.config, args.playlist, args.add_channel)
+            return
         
         # Legacy mode
         if args.channels and args.playlist_title:
@@ -555,9 +586,8 @@ def main():
             # Use timestamp as start date if no explicit start date provided
             start_date = args.start_date
             if not start_date and playlist_name in timestamps:
-                # Use yesterday's date from last timestamp to ensure overlap
-                last_update = datetime.fromisoformat(timestamps[playlist_name])
-                start_date = (last_update - timedelta(days=1)).strftime('%Y-%m-%d')
+                # Use exact timestamp from last update
+                start_date = timestamps[playlist_name]
             elif not start_date:
                 start_date = playlist_config.get('default_start_date', '2025-08-01')
             

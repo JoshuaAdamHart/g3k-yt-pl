@@ -12,7 +12,7 @@ run: ## Run the playlist manager (legacy mode, requires ARGS="--playlist-title '
 	./venv/bin/python g3k-yt-pl.py $(ARGS)
 
 run-config: ## Run with config file (requires PLAYLIST=name, optional CONFIG=file)
-	./venv/bin/python g3k-yt-pl.py --config $(or $(CONFIG),playlists.json) --playlist $(PLAYLIST)
+	./venv/bin/python g3k-yt-pl.py --config $(or $(CONFIG),json_cache/playlists.json) --playlist $(PLAYLIST)
 
 update-all: ## Update all playlists from config file
 	./update-all.sh
