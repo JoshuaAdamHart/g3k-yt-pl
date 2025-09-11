@@ -663,7 +663,10 @@ def main():
             for playlist_title, videos in summary.items():
                 print(f"\n🎵 {playlist_title} ({len(videos)} videos):")
                 for video in videos:
-                    print(f"  📺 {video['channel_title']} - {video['title']} ({video['published_at'][:10]})")
+                    # Parse and format the datetime to show date and time
+                    pub_datetime = datetime.fromisoformat(video['published_at'].replace('Z', '+00:00'))
+                    formatted_time = pub_datetime.strftime('%Y-%m-%d %H:%M')
+                    print(f"  📺 {video['channel_title']} - {video['title']} ({formatted_time})")
         else:
             print(f"\n📋 SUMMARY - No videos were added to any playlist")
             
