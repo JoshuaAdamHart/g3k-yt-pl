@@ -59,10 +59,12 @@ class G3kYouTubePlaylistManager:
         os.makedirs('json_cache', exist_ok=True)
         self.cache_file = 'json_cache/cache.json'
         self.channel_cache_file = 'json_cache/channels.json'
+        self.added_videos_file = 'json_cache/added_videos.json'
         self.youtube = None
         self.quota = QuotaTracker()
         self.cache = self._load_cache()
         self.channel_cache = self._load_channel_cache()
+        self.added_videos = self._load_added_videos()
         
     def _load_cache(self) -> Dict[str, Any]:
         if os.path.exists(self.cache_file):
@@ -72,6 +74,26 @@ class G3kYouTubePlaylistManager:
             except:
                 pass
         return {'channels': {}, 'last_run': None}
+    
+    def _load_added_videos(self) -> Dict[str, set]:
+        if os.path.exists(self.added_videos_file):
+            try:
+                with open(self.added_videos_file, 'r') as f:
+                    data = json.load(f)
+                    # Convert lists back to sets
+                    return {playlist: set(videos) for playlist, videos in data.items()}
+            except:
+                pass
+        return {}
+    
+    def _save_added_videos(self):
+        try:
+            # Convert sets to lists for JSON serialization
+            data = {playlist: list(videos) for playlist, videos in self.added_videos.items()}
+            with open(self.added_videos_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save added videos tracking: {e}")
     
     def _load_channel_cache(self) -> Dict[str, str]:
         if os.path.exists(self.channel_cache_file):
@@ -347,21 +369,30 @@ class G3kYouTubePlaylistManager:
         
         return existing_ids
     
-    def add_videos_to_playlist(self, playlist_id: str, videos: List[Dict[str, Any]], existing_ids: set) -> int:
+    def add_videos_to_playlist(self, playlist_id: str, playlist_title: str, videos: List[Dict[str, Any]], existing_ids: set):
         global shutdown_requested
         import time
         
-        # Filter out existing videos and sort by date
-        new_videos = [v for v in videos if v['video_id'] not in existing_ids]
+        # Get previously added videos for this playlist
+        previously_added = self.added_videos.get(playlist_title, set())
+        
+        # Filter out existing videos and previously added videos, then sort by date
+        new_videos = [v for v in videos if v['video_id'] not in existing_ids and v['video_id'] not in previously_added]
         new_videos.sort(key=lambda x: x['published_at'])
         
         if not new_videos:
             print("📝 No new videos to add")
-            return 0
+            return 0, []
+        
+        # Show how many were filtered out
+        filtered_count = len(videos) - len(new_videos) - len([v for v in videos if v['video_id'] in existing_ids])
+        if filtered_count > 0:
+            print(f"🚫 Skipped {filtered_count} previously added videos")
         
         print(f"➕ Adding {len(new_videos)} new videos...")
         
         added_count = 0
+        added_videos = []
         
         for i, video in enumerate(new_videos, 1):
             if shutdown_requested:
@@ -388,7 +419,13 @@ class G3kYouTubePlaylistManager:
                 ).execute()
                 self.quota.add_cost(50)
                 
+                # Track this video as added to this playlist
+                if playlist_title not in self.added_videos:
+                    self.added_videos[playlist_title] = set()
+                self.added_videos[playlist_title].add(video['video_id'])
+                
                 added_count += 1
+                added_videos.append(video)
                 print(f"  ✅ {video['title']} ({video['published_at'][:10]})")
                 
                 # Progress update
@@ -405,13 +442,16 @@ class G3kYouTubePlaylistManager:
                 else:
                     print(f"  ❌ Failed to add: {video['title']} ({e})")
         
-        return added_count
+        # Save the tracking data
+        self._save_added_videos()
+        
+        return added_count, added_videos
     
     def process_channels(self, channels: List[str], playlist_title: str, 
-                        start_date: Optional[str] = None, end_date: Optional[str] = None) -> bool:
+                        start_date: Optional[str] = None, end_date: Optional[str] = None):
         
         if not self.authenticate():
-            return False
+            return False, []
         
         # Convert dates to ISO format if needed
         since_date = None
@@ -424,7 +464,7 @@ class G3kYouTubePlaylistManager:
                 print(f"📅 Filtering videos from: {start_date}")
             except:
                 print(f"❌ Invalid start date format: {start_date}")
-                return False
+                return False, []
         
         # Check for new videos since last run
         if not start_date and self.cache.get('last_run'):
@@ -437,7 +477,7 @@ class G3kYouTubePlaylistManager:
         # Get or create playlist
         playlist_id = self.get_or_create_playlist(playlist_title)
         if not playlist_id:
-            return False
+            return False, []
         
         # Get existing videos to avoid duplicates
         existing_ids = self.get_existing_videos(playlist_id)
@@ -465,7 +505,7 @@ class G3kYouTubePlaylistManager:
         
         if not all_videos:
             print("📝 No videos found")
-            return False
+            return True, []  # Successful check, just no new videos
         
         # Sort by publication date and add to playlist
         all_videos.sort(key=lambda x: x['published_at'])
@@ -473,12 +513,12 @@ class G3kYouTubePlaylistManager:
         if all_videos:
             print(f"📅 Date range: {all_videos[0]['published_at'][:10]} to {all_videos[-1]['published_at'][:10]}")
         
-        added_count = self.add_videos_to_playlist(playlist_id, all_videos, existing_ids)
+        added_count, added_videos = self.add_videos_to_playlist(playlist_id, playlist_title, all_videos, existing_ids)
         
         # Check if quota was exceeded during video addition
         if self.quota.used >= self.quota.limit:
             print("⚠️ Quota exceeded - not updating cache timestamp")
-            return False
+            return False, added_videos
         
         # Update last run timestamp
         self.cache['last_run'] = datetime.now().isoformat()
@@ -486,7 +526,7 @@ class G3kYouTubePlaylistManager:
         
         print(f"\n🎉 Complete! Added {added_count} videos to '{playlist_title}'")
         print(f"📊 Quota used: {self.quota.used}/{self.quota.limit} ({self.quota.remaining()} remaining)")
-        return True
+        return True, added_videos
 
 def load_playlist_config(config_file: str) -> Dict[str, Any]:
     """Load playlist configuration from JSON file."""
@@ -555,6 +595,7 @@ def main():
     
     try:
         manager = G3kYouTubePlaylistManager(args.credentials)
+        summary = {}  # Track added videos for final summary
         
         # Add channel mode
         if args.add_channel:
@@ -566,7 +607,9 @@ def main():
         
         # Legacy mode
         if args.channels and args.playlist_title:
-            manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
+            success, added_videos = manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
+            if added_videos:
+                summary[args.playlist_title] = added_videos
             return
         
         # Config mode
@@ -586,20 +629,25 @@ def main():
             # Use timestamp as start date if no explicit start date provided
             start_date = args.start_date
             if not start_date and playlist_name in timestamps:
-                # Use exact timestamp from last update
-                start_date = timestamps[playlist_name]
+                # Use timestamp minus 24 hours to catch videos that might have been missed
+                last_update = datetime.fromisoformat(timestamps[playlist_name])
+                start_date = (last_update - timedelta(hours=24)).isoformat()
             elif not start_date:
                 start_date = playlist_config.get('default_start_date', '2025-08-01')
             
             print(f"\n🎵 Processing playlist: {playlist_config['title']}")
             print(f"📅 Start date: {start_date}")
             
-            success = manager.process_channels(
+            success, added_videos = manager.process_channels(
                 playlist_config['channels'], 
                 playlist_config['title'], 
                 start_date, 
                 args.end_date
             )
+            
+            # Collect summary data
+            if added_videos:
+                summary[playlist_config['title']] = added_videos
             
             # Only update timestamp if processing was successful
             if success:
@@ -607,6 +655,17 @@ def main():
                 save_playlist_timestamps(timestamp_file, timestamps)
             else:
                 print(f"⚠️ Skipping timestamp update for {playlist_name} due to errors")
+        
+        # Print summary
+        if summary:
+            print(f"\n📋 SUMMARY - Videos Added:")
+            print("=" * 50)
+            for playlist_title, videos in summary.items():
+                print(f"\n🎵 {playlist_title} ({len(videos)} videos):")
+                for video in videos:
+                    print(f"  📺 {video['channel_title']} - {video['title']} ({video['published_at'][:10]})")
+        else:
+            print(f"\n📋 SUMMARY - No videos were added to any playlist")
             
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
