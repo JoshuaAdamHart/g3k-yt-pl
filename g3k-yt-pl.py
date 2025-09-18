@@ -18,6 +18,7 @@ import argparse
 import signal
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+import pytz
 
 try:
     from google.auth.transport.requests import Request
@@ -459,9 +460,16 @@ class G3kYouTubePlaylistManager:
             try:
                 if len(start_date) == 10:  # YYYY-MM-DD
                     since_date = start_date + 'T00:00:00Z'
+                    # Show date only for YYYY-MM-DD format
+                    print(f"📅 Filtering videos from: {start_date}")
                 else:
                     since_date = start_date
-                print(f"📅 Filtering videos from: {start_date}")
+                    # Convert ISO timestamp to Pacific time for display
+                    utc_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    pacific_tz = pytz.timezone('US/Pacific')
+                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
+                    formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
+                    print(f"📅 Filtering videos from: {formatted_time}")
             except:
                 print(f"❌ Invalid start date format: {start_date}")
                 return False, []
@@ -636,7 +644,20 @@ def main():
                 start_date = playlist_config.get('default_start_date', '2025-08-01')
             
             print(f"\n🎵 Processing playlist: {playlist_config['title']}")
-            print(f"📅 Start date: {start_date}")
+            
+            # Format start_date for display
+            if len(start_date) == 10:  # YYYY-MM-DD format
+                display_start_date = start_date
+            else:  # ISO timestamp format
+                try:
+                    utc_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    pacific_tz = pytz.timezone('US/Pacific')
+                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
+                    display_start_date = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
+                except:
+                    display_start_date = start_date
+            
+            print(f"📅 Start date: {display_start_date}")
             
             success, added_videos = manager.process_channels(
                 playlist_config['channels'], 
@@ -663,9 +684,11 @@ def main():
             for playlist_title, videos in summary.items():
                 print(f"\n🎵 {playlist_title} ({len(videos)} videos):")
                 for video in videos:
-                    # Parse and format the datetime to show date and time
-                    pub_datetime = datetime.fromisoformat(video['published_at'].replace('Z', '+00:00'))
-                    formatted_time = pub_datetime.strftime('%Y-%m-%d %H:%M')
+                    # Parse UTC datetime and convert to Pacific time
+                    utc_datetime = datetime.fromisoformat(video['published_at'].replace('Z', '+00:00'))
+                    pacific_tz = pytz.timezone('US/Pacific')
+                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
+                    formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
                     print(f"  📺 {video['channel_title']} - {video['title']} ({formatted_time})")
         else:
             print(f"\n📋 SUMMARY - No videos were added to any playlist")
