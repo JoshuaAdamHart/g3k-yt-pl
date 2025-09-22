@@ -283,6 +283,48 @@ class G3kYouTubePlaylistManager:
         
         return videos
     
+    def get_video_durations(self, video_ids: List[str]) -> Dict[str, str]:
+        """Get durations for a list of video IDs. Returns dict mapping video_id -> duration."""
+        if not video_ids or not self.quota.can_afford(1):
+            return {}
+        
+        durations = {}
+        try:
+            # Process in batches of 50 (API limit)
+            for i in range(0, len(video_ids), 50):
+                batch = video_ids[i:i+50]
+                response = self.youtube.videos().list(
+                    part='contentDetails',
+                    id=','.join(batch)
+                ).execute()
+                self.quota.add_cost(1)
+                
+                for item in response['items']:
+                    duration = item['contentDetails']['duration']
+                    durations[item['id']] = self._parse_duration(duration)
+        except HttpError as e:
+            if 'quotaExceeded' in str(e):
+                print("⚠️ API quota exceeded while fetching durations")
+        
+        return durations
+    
+    def _parse_duration(self, duration: str) -> str:
+        """Convert ISO 8601 duration (PT4M13S) to readable format (4:13)."""
+        import re
+        match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
+        if not match:
+            return "0:00"
+        
+        hours, minutes, seconds = match.groups()
+        hours = int(hours) if hours else 0
+        minutes = int(minutes) if minutes else 0
+        seconds = int(seconds) if seconds else 0
+        
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes}:{seconds:02d}"
+    
     def get_or_create_playlist(self, title: str) -> Optional[str]:
         if not self.quota.can_afford(1):
             print("⚠️ Not enough quota to search for playlists")
@@ -681,7 +723,17 @@ def main():
         if summary:
             print(f"\n📋 SUMMARY - Videos Added:")
             print("=" * 50)
+            
+            # Collect all video IDs for duration lookup
+            all_video_ids = []
+            for videos in summary.values():
+                all_video_ids.extend([v['video_id'] for v in videos])
+            
+            # Get durations for all videos
+            durations = manager.get_video_durations(all_video_ids) if all_video_ids else {}
+            
             for playlist_title, videos in summary.items():
+                total_duration_seconds = 0
                 print(f"\n🎵 {playlist_title} ({len(videos)} videos):")
                 for video in videos:
                     # Parse UTC datetime and convert to Pacific time
@@ -689,7 +741,26 @@ def main():
                     pacific_tz = pytz.timezone('US/Pacific')
                     pacific_datetime = utc_datetime.astimezone(pacific_tz)
                     formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
-                    print(f"  📺 {video['channel_title']} - {video['title']} ({formatted_time})")
+                    
+                    duration_str = durations.get(video['video_id'], '0:00')
+                    print(f"  📺 {video['channel_title']} - {video['title']} ({duration_str}) ({formatted_time})")
+                    
+                    # Add to total duration
+                    if ':' in duration_str:
+                        parts = duration_str.split(':')
+                        if len(parts) == 2:  # MM:SS
+                            total_duration_seconds += int(parts[0]) * 60 + int(parts[1])
+                        elif len(parts) == 3:  # HH:MM:SS
+                            total_duration_seconds += int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                
+                # Show total duration for playlist
+                if total_duration_seconds > 0:
+                    hours = total_duration_seconds // 3600
+                    minutes = (total_duration_seconds % 3600) // 60
+                    if hours > 0:
+                        print(f"  ⏱️  Total duration: {hours}h {minutes}m")
+                    else:
+                        print(f"  ⏱️  Total duration: {minutes}m")
         else:
             print(f"\n📋 SUMMARY - No videos were added to any playlist")
             
