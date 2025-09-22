@@ -62,7 +62,7 @@ make setup
 ./update-all.sh
 
 # Update specific playlist
-python g3k-yt-pl.py --config playlists.json --playlist nerds
+python g3k-yt-pl.py --config json_cache/playlists.json --playlist nerds
 
 # Use custom config file
 python g3k-yt-pl.py --config my-playlists.json --playlist tech
@@ -107,7 +107,7 @@ python g3k-yt-pl.py -t "Educational" \
 
 ## JSON Configuration
 
-Create a `playlists.json` file to define multiple playlists:
+Create a `json_cache/playlists.json` file to define multiple playlists:
 
 ```json
 {
@@ -169,6 +169,7 @@ The tool will stop gracefully when approaching quota limits and suggest running 
 Cache files:
 - `json_cache/cache.json` - Video metadata and timestamps
 - `json_cache/channels.json` - Channel name to ID mappings
+- `json_cache/playlist_timestamps.json` - Per-playlist last update timestamps
 - `token.json` - Authentication tokens
 
 ## Error Handling
@@ -183,6 +184,7 @@ Cache files:
 - `token.json` - OAuth tokens (auto-generated)
 - `json_cache/cache.json` - Video and channel cache
 - `json_cache/playlist_timestamps.json` - Per-playlist last update timestamps
+- `json_cache/playlists.json` - Playlist configuration (user-created)
 - `.gitignore` - Excludes sensitive files from git
 
 ## Troubleshooting
