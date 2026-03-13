@@ -1,24 +1,24 @@
 .PHONY: setup install run run-config update-all clean help
 
 setup: ## Create virtual environment and install dependencies
-	python3 -m venv venv
-	./venv/bin/pip install --upgrade pip
-	./venv/bin/pip install -r requirements.txt
+	python3 -m venv .venv
+	./.venv/bin/pip install --upgrade pip
+	./.venv/bin/pip install -r requirements.txt
 
 install: ## Install dependencies in existing environment
-	pip install -r requirements.txt
+	./.venv/bin/pip install -r requirements.txt
 
 run: ## Run the playlist manager (legacy mode, requires ARGS="--playlist-title 'Title' channel1 channel2")
-	./venv/bin/python g3k-yt-pl.py $(ARGS)
+	./.venv/bin/python g3k-yt-pl.py $(ARGS)
 
 run-config: ## Run with config file (requires PLAYLIST=name, optional CONFIG=file)
-	./venv/bin/python g3k-yt-pl.py --config $(or $(CONFIG),json_cache/playlists.json) --playlist $(PLAYLIST)
+	./.venv/bin/python g3k-yt-pl.py --config $(or $(CONFIG),json_cache/playlists.json) --playlist $(PLAYLIST)
 
 update-all: ## Update all playlists from config file
 	./update-all.sh
 
 clean: ## Remove virtual environment and cache files
-	rm -rf venv/
+	rm -rf .venv/
 	rm -rf json_cache/
 	rm -f token.json
 
