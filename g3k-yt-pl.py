@@ -1,4 +1,4 @@
-#!/usr/bin/env ./venv/bin/python
+#!/usr/bin/env ./.venv/bin/python
 """
 G3K YouTube Playlist Manager
 A Vibe-coded Python project by Joshua Adam Hart
@@ -192,13 +192,25 @@ class G3kYouTubePlaylistManager:
     
     def get_channel_videos(self, channel_id: str, since_date: Optional[str] = None) -> List[Dict[str, Any]]:
         # Check cache first
-        cache_key = f"{channel_id}_{since_date or 'all'}"
-        if cache_key in self.cache['channels']:
-            cached_data = self.cache['channels'][cache_key]
+        if channel_id in self.cache['channels']:
+            cached_data = self.cache['channels'][channel_id]
             cache_time = datetime.fromisoformat(cached_data['timestamp'])
-            if datetime.now() - cache_time < timedelta(hours=24):  # 24 hour cache
+            
+            # Check if cache is still valid (24 hours) and covers the requested date range
+            cache_valid = datetime.now() - cache_time < timedelta(hours=24)
+            date_range_covered = True
+            
+            if since_date and 'oldest_video_date' in cached_data:
+                # If we want videos since a date that's older than our cached range, need to fetch
+                date_range_covered = since_date >= cached_data['oldest_video_date']
+            
+            if cache_valid and date_range_covered:
                 print(f"📦 Using cached data for channel {channel_id}")
-                return cached_data['videos']
+                # Filter cached videos by date if needed
+                videos = cached_data['videos']
+                if since_date:
+                    videos = [v for v in videos if v['published_at'] >= since_date]
+                return videos
         
         if not self.quota.can_afford(1):
             print(f"⚠️ Not enough quota to fetch channel videos")
@@ -268,11 +280,26 @@ class G3kYouTubePlaylistManager:
             
             print(f"📊 Found {len(videos)} videos")
             
+            # Sort videos by publication date (oldest first)
+            videos.sort(key=lambda x: x['published_at'])
+            
+            # Calculate date range
+            oldest_date = videos[0]['published_at'] if videos else None
+            newest_date = videos[-1]['published_at'] if videos else None
+            
             # Cache the results
-            self.cache['channels'][cache_key] = {
+            cache_entry = {
+                'channel_name': channel_title,
                 'videos': videos,
                 'timestamp': datetime.now().isoformat()
             }
+            
+            if oldest_date:
+                cache_entry['oldest_video_date'] = oldest_date
+            if newest_date:
+                cache_entry['newest_video_date'] = newest_date
+                
+            self.cache['channels'][channel_id] = cache_entry
             self._save_cache()
             
         except HttpError as e:
@@ -299,8 +326,8 @@ class G3kYouTubePlaylistManager:
                 ).execute()
                 self.quota.add_cost(1)
                 
-                for item in response['items']:
-                    duration = item['contentDetails']['duration']
+                for item in response.get('items', []):
+                    duration = item.get('contentDetails', {}).get('duration', 'PT0S')
                     durations[item['id']] = self._parse_duration(duration)
         except HttpError as e:
             if 'quotaExceeded' in str(e):
@@ -631,7 +658,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     parser = argparse.ArgumentParser(description='G3K YouTube Playlist Manager')
-    parser.add_argument('--config', '-c', default='json_cache/playlists.json', help='JSON config file with playlist definitions')
+    parser.add_argument('--config', '-c', default='playlists.json', help='JSON config file with playlist definitions')
     parser.add_argument('--playlist', '-p', help='Process only this specific playlist from config')
     parser.add_argument('--add-channel', help='Add a channel to the specified playlist (requires --playlist)')
     parser.add_argument('--credentials', default='credentials.json', help='Credentials file path')
@@ -667,7 +694,13 @@ def main():
         timestamp_file = 'json_cache/playlist_timestamps.json'
         timestamps = load_playlist_timestamps(timestamp_file)
         
-        playlists_to_process = [args.playlist] if args.playlist else config['playlists'].keys()
+        if args.playlist:
+            # Process specific playlist (even if disabled)
+            playlists_to_process = [args.playlist]
+        else:
+            # Process all enabled playlists
+            playlists_to_process = [name for name, config_data in config['playlists'].items() 
+                                  if not config_data.get('disabled', False)]
         
         for playlist_name in playlists_to_process:
             if playlist_name not in config['playlists']:

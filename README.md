@@ -120,13 +120,17 @@ Create a `json_cache/playlists.json` file to define multiple playlists:
     "gaming": {
       "title": "Gaming Videos", 
       "channels": ["PewDiePie", "Markiplier"],
-      "default_start_date": "2024-06-01"
+      "default_start_date": "2024-06-01",
+      "disabled": true
     }
   }
 }
 ```
 
 The system automatically tracks when each playlist was last updated and uses that timestamp (minus 1 day) as the start date for subsequent runs. The `default_start_date` is only used for the first run of each playlist.
+
+**Optional flags:**
+- `disabled`: Set to `true` to skip this playlist during batch processing. It will only be processed when explicitly specified with `--playlist`.
 
 ### Makefile Commands
 ```bash
