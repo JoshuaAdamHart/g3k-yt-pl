@@ -54,8 +54,9 @@ class QuotaTracker:
         return max(0, self.limit - self.used)
 
 class G3kYouTubePlaylistManager:
-    def __init__(self, credentials_file: str = 'credentials.json'):
+    def __init__(self, credentials_file: str = 'credentials.json', verbose: bool = False):
         self.credentials_file = credentials_file
+        self.verbose = verbose
         self.token_file = 'token.json'
         os.makedirs('json_cache', exist_ok=True)
         self.cache_file = 'json_cache/cache.json'
@@ -140,7 +141,8 @@ class G3kYouTubePlaylistManager:
                 token.write(creds.to_json())
         
         self.youtube = build('youtube', 'v3', credentials=creds)
-        print("✅ Authenticated with YouTube API")
+        if self.verbose:
+            print("✅ Authenticated with YouTube API")
         return True
     
     def get_channel_id(self, channel_input: str) -> Optional[str]:
@@ -150,7 +152,8 @@ class G3kYouTubePlaylistManager:
         
         # Check cache first
         if channel_input in self.channel_cache:
-            print(f"📦 Using cached channel ID for: {channel_input}")
+            if self.verbose:
+                print(f"📦 Using cached channel ID for: {channel_input}")
             return self.channel_cache[channel_input]
         
         # Extract from URL
@@ -232,7 +235,8 @@ class G3kYouTubePlaylistManager:
             channel_title = channel_info['snippet']['title']
             uploads_playlist_id = channel_info['contentDetails']['relatedPlaylists']['uploads']
             
-            print(f"📺 Fetching videos from: {channel_title}")
+            if self.verbose:
+                print(f"📺 Fetching videos from: {channel_title}")
             
             # Get videos from uploads playlist (1 quota unit per page)
             next_page_token = None
@@ -259,7 +263,8 @@ class G3kYouTubePlaylistManager:
                     
                     # Stop fetching if we've gone past our start date (videos are newest first)
                     if since_date and video_date < since_date:
-                        print(f"📅 Reached videos older than {since_date[:10]}, stopping fetch")
+                        if self.verbose:
+                            print(f"📅 Reached videos older than {since_date[:10]}, stopping fetch")
                         stop_fetching = True
                         break
                     
@@ -278,7 +283,8 @@ class G3kYouTubePlaylistManager:
                 if not next_page_token:
                     break
             
-            print(f"📊 Found {len(videos)} videos")
+            if self.verbose:
+                print(f"📊 Found {len(videos)} videos")
             
             # Sort videos by publication date (oldest first)
             videos.sort(key=lambda x: x['published_at'])
@@ -369,7 +375,8 @@ class G3kYouTubePlaylistManager:
             for playlist in playlists_response['items']:
                 if playlist['snippet']['title'] == title:
                     playlist_id = playlist['id']
-                    print(f"📋 Found existing playlist: {title}")
+                    if self.verbose:
+                        print(f"📋 Found existing playlist: {title}")
                     return playlist_id
             
             # Create new playlist (50 quota units)
@@ -428,8 +435,8 @@ class G3kYouTubePlaylistManager:
                 next_page_token = response.get('nextPageToken')
                 if not next_page_token:
                     break
-            
-            print(f"📊 Found {len(existing_ids)} existing videos in playlist")
+            if self.verbose:
+                print(f"📊 Found {len(existing_ids)} existing videos in playlist")
             
         except HttpError as e:
             if 'quotaExceeded' in str(e):
@@ -451,12 +458,13 @@ class G3kYouTubePlaylistManager:
         new_videos.sort(key=lambda x: x['published_at'])
         
         if not new_videos:
-            print("📝 No new videos to add")
+            if self.verbose:
+                print("📝 No new videos to add")
             return 0, []
         
         # Show how many were filtered out
         filtered_count = len(videos) - len(new_videos) - len([v for v in videos if v['video_id'] in existing_ids])
-        if filtered_count > 0:
+        if filtered_count > 0 and self.verbose:
             print(f"🚫 Skipped {filtered_count} previously added videos")
         
         print(f"➕ Adding {len(new_videos)} new videos...")
@@ -530,7 +538,8 @@ class G3kYouTubePlaylistManager:
                 if len(start_date) == 10:  # YYYY-MM-DD
                     since_date = start_date + 'T00:00:00Z'
                     # Show date only for YYYY-MM-DD format
-                    print(f"📅 Filtering videos from: {start_date}")
+                    if self.verbose:
+                        print(f"📅 Filtering videos from: {start_date}")
                 else:
                     since_date = start_date
                     # Convert ISO timestamp to Pacific time for display
@@ -538,7 +547,8 @@ class G3kYouTubePlaylistManager:
                     pacific_tz = pytz.timezone('US/Pacific')
                     pacific_datetime = utc_datetime.astimezone(pacific_tz)
                     formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
-                    print(f"📅 Filtering videos from: {formatted_time}")
+                    if self.verbose:
+                        print(f"📅 Filtering videos from: {formatted_time}")
             except:
                 print(f"❌ Invalid start date format: {start_date}")
                 return False, []
@@ -548,8 +558,9 @@ class G3kYouTubePlaylistManager:
             since_date = self.cache['last_run']
             print(f"📅 Checking for new videos since last run: {since_date[:10]}")
         
-        print(f"🎯 Target playlist: {playlist_title}")
-        print(f"📊 Starting quota: {self.quota.remaining()}")
+        if self.verbose:
+            print(f"🎯 Target playlist: {playlist_title}")
+            print(f"📊 Starting quota: {self.quota.remaining()}")
         
         # Get or create playlist
         playlist_id = self.get_or_create_playlist(playlist_title)
@@ -562,7 +573,7 @@ class G3kYouTubePlaylistManager:
         # Collect videos from all channels
         all_videos = []
         for channel_input in channels:
-            print(f"\n🔍 Processing: {channel_input}")
+            print(f"🔍 Processing: {channel_input}")
             
             channel_id = self.get_channel_id(channel_input)
             if not channel_id:
@@ -581,14 +592,16 @@ class G3kYouTubePlaylistManager:
                 break
         
         if not all_videos:
-            print("📝 No videos found")
+            if self.verbose:
+                print("📝 No videos found")
             return True, []  # Successful check, just no new videos
         
         # Sort by publication date and add to playlist
         all_videos.sort(key=lambda x: x['published_at'])
-        print(f"\n📊 Total videos found: {len(all_videos)}")
-        if all_videos:
-            print(f"📅 Date range: {all_videos[0]['published_at'][:10]} to {all_videos[-1]['published_at'][:10]}")
+        if self.verbose:
+            print(f"\n📊 Total videos found: {len(all_videos)}")
+            if all_videos:
+                print(f"📅 Date range: {all_videos[0]['published_at'][:10]} to {all_videos[-1]['published_at'][:10]}")
         
         added_count, added_videos = self.add_videos_to_playlist(playlist_id, playlist_title, all_videos, existing_ids)
         
@@ -601,8 +614,11 @@ class G3kYouTubePlaylistManager:
         self.cache['last_run'] = datetime.now().isoformat()
         self._save_cache()
         
-        print(f"\n🎉 Complete! Added {added_count} videos to '{playlist_title}'")
-        print(f"📊 Quota used: {self.quota.used}/{self.quota.limit} ({self.quota.remaining()} remaining)")
+        
+        if self.verbose:
+            if added_count > 0:
+                print(f"\n🎉 Complete! Added {added_count} videos to '{playlist_title}'")
+            print(f"📊 Quota used: {self.quota.used}/{self.quota.limit} ({self.quota.remaining()} remaining)")
         return True, added_videos
 
 def load_playlist_config(config_file: str) -> Dict[str, Any]:
@@ -662,6 +678,7 @@ def main():
     parser.add_argument('--playlist', '-p', help='Process only this specific playlist from config')
     parser.add_argument('--add-channel', help='Add a channel to the specified playlist (requires --playlist)')
     parser.add_argument('--credentials', default='credentials.json', help='Credentials file path')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output (cached IDs, fetch progress, zero-add completions)')
     # Legacy mode support
     parser.add_argument('channels', nargs='*', help='YouTube channels (legacy mode)')
     parser.add_argument('--playlist-title', '-t', help='Playlist title (legacy mode)')
@@ -671,7 +688,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        manager = G3kYouTubePlaylistManager(args.credentials)
+        manager = G3kYouTubePlaylistManager(args.credentials, verbose=args.verbose)
         summary = {}  # Track added videos for final summary
         
         # Add channel mode
@@ -731,8 +748,8 @@ def main():
                     display_start_date = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
                 except:
                     display_start_date = start_date
-            
-            print(f"📅 Start date: {display_start_date}")
+            if args.verbose:
+                print(f"📅 Start date: {display_start_date}")
             
             success, added_videos = manager.process_channels(
                 playlist_config['channels'], 
