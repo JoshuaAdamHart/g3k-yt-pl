@@ -16,6 +16,8 @@ import sys
 import json
 import argparse
 import signal
+import re
+import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import pytz
@@ -32,6 +34,10 @@ except ImportError:
     sys.exit(1)
 
 SCOPES = ['https://www.googleapis.com/auth/youtube']
+DEFAULT_START_DATE = '2025-08-01'
+QUOTA_FILE = 'json_cache/quota.json'
+TIMESTAMP_FILE = 'json_cache/playlist_timestamps.json'
+
 shutdown_requested = False
 
 def signal_handler(signum, frame):
@@ -39,15 +45,58 @@ def signal_handler(signum, frame):
     print(f"\n🛑 Gracefully shutting down...")
     shutdown_requested = True
 
+def format_pacific_time(iso_str: str, fmt: str = '%Y-%m-%d %H:%M PT') -> str:
+    """Convert UTC ISO timestamp to US/Pacific formatted string."""
+    try:
+        utc_dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        pacific_tz = pytz.timezone('US/Pacific')
+        return utc_dt.astimezone(pacific_tz).strftime(fmt)
+    except Exception:
+        return iso_str
+
 class QuotaTracker:
-    def __init__(self):
-        self.used = 0
+    def __init__(self, quota_file: str = QUOTA_FILE):
+        self.quota_file = quota_file
         self.limit = 10000  # YouTube API daily quota
+        self.used = 0
+        self.date_str = self._get_pacific_date()
+        self._load_quota()
         
+    def _get_pacific_date(self) -> str:
+        pacific_tz = pytz.timezone('US/Pacific')
+        return datetime.now(pacific_tz).strftime('%Y-%m-%d')
+        
+    def _load_quota(self):
+        if os.path.exists(self.quota_file):
+            try:
+                with open(self.quota_file, 'r') as f:
+                    data = json.load(f)
+                    if data.get('date') == self.date_str:
+                        self.used = data.get('used', 0)
+            except Exception:
+                pass
+
+    def _save_quota(self):
+        try:
+            with open(self.quota_file, 'w') as f:
+                json.dump({'date': self.date_str, 'used': self.used}, f, indent=2)
+        except Exception:
+            pass
+
     def add_cost(self, cost: int):
+        current_date = self._get_pacific_date()
+        if current_date != self.date_str:
+            self.date_str = current_date
+            self.used = 0
         self.used += cost
+        self._save_quota()
         
     def can_afford(self, cost: int) -> bool:
+        current_date = self._get_pacific_date()
+        if current_date != self.date_str:
+            self.date_str = current_date
+            self.used = 0
+            self._save_quota()
         return self.used + cost <= self.limit
         
     def remaining(self) -> int:
@@ -164,6 +213,36 @@ class G3kYouTubePlaylistManager:
                 self._save_channel_cache()
                 return channel_id
         
+        # Handle support (@username or youtube.com/@username) - costs 1 unit vs 100 for search!
+        handle = None
+        if channel_input.startswith('@'):
+            handle = channel_input[1:]
+        elif 'youtube.com/@' in channel_input:
+            handle = channel_input.split('youtube.com/@')[-1].split('/')[0]
+            
+        if handle:
+            if not self.quota.can_afford(1):
+                print(f"⚠️ Not enough quota for channel handle lookup: {channel_input}")
+                return None
+            try:
+                response = self.youtube.channels().list(
+                    part='id',
+                    forHandle=handle
+                ).execute()
+                self.quota.add_cost(1)
+                
+                if response.get('items'):
+                    channel_id = response['items'][0]['id']
+                    self.channel_cache[channel_input] = channel_id
+                    self._save_channel_cache()
+                    if self.verbose:
+                        print(f"💾 Cached handle mapping: {channel_input} -> {channel_id}")
+                    return channel_id
+            except HttpError as e:
+                if 'quotaExceeded' in str(e):
+                    print("⚠️ API quota exceeded during channel handle lookup")
+                    return None
+        
         # Search by name (expensive - 100 quota units)
         if not self.quota.can_afford(100):
             print(f"⚠️ Not enough quota for channel search: {channel_input}")
@@ -178,12 +257,13 @@ class G3kYouTubePlaylistManager:
             ).execute()
             self.quota.add_cost(100)
             
-            if response['items']:
+            if response.get('items'):
                 channel_id = response['items'][0]['snippet']['channelId']
                 # Cache the result
                 self.channel_cache[channel_input] = channel_id
                 self._save_channel_cache()
-                print(f"💾 Cached channel mapping: {channel_input} -> {channel_id}")
+                if self.verbose:
+                    print(f"💾 Cached channel mapping: {channel_input} -> {channel_id}")
                 return channel_id
         except HttpError as e:
             if 'quotaExceeded' in str(e):
@@ -221,19 +301,27 @@ class G3kYouTubePlaylistManager:
         
         videos = []
         try:
-            # Get uploads playlist (1 quota unit)
-            channel_response = self.youtube.channels().list(
-                part='contentDetails,snippet',
-                id=channel_id
-            ).execute()
-            self.quota.add_cost(1)
-            
-            if not channel_response['items']:
-                return videos
-            
-            channel_info = channel_response['items'][0]
-            channel_title = channel_info['snippet']['title']
-            uploads_playlist_id = channel_info['contentDetails']['relatedPlaylists']['uploads']
+            # Derive uploads playlist ID if channel_id starts with UC (saves 1 API quota unit)
+            if channel_id.startswith('UC') and len(channel_id) == 24:
+                uploads_playlist_id = 'UU' + channel_id[2:]
+                cached_info = self.cache.get('channels', {}).get(channel_id, {})
+                channel_title = cached_info.get('channel_name', channel_id)
+            else:
+                if not self.quota.can_afford(1):
+                    print(f"⚠️ Not enough quota to fetch channel details")
+                    return []
+                channel_response = self.youtube.channels().list(
+                    part='contentDetails,snippet',
+                    id=channel_id
+                ).execute()
+                self.quota.add_cost(1)
+                
+                if not channel_response.get('items'):
+                    return videos
+                
+                channel_info = channel_response['items'][0]
+                channel_title = channel_info['snippet']['title']
+                uploads_playlist_id = channel_info['contentDetails']['relatedPlaylists']['uploads']
             
             if self.verbose:
                 print(f"📺 Fetching videos from: {channel_title}")
@@ -343,7 +431,6 @@ class G3kYouTubePlaylistManager:
     
     def _parse_duration(self, duration: str) -> str:
         """Convert ISO 8601 duration (PT4M13S) to readable format (4:13)."""
-        import re
         match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
         if not match:
             return "0:00"
@@ -364,20 +451,30 @@ class G3kYouTubePlaylistManager:
             return None
         
         try:
-            # Search for existing playlist (1 quota unit)
-            playlists_response = self.youtube.playlists().list(
-                part='snippet',
-                mine=True,
-                maxResults=50
-            ).execute()
-            self.quota.add_cost(1)
-            
-            for playlist in playlists_response['items']:
-                if playlist['snippet']['title'] == title:
-                    playlist_id = playlist['id']
-                    if self.verbose:
-                        print(f"📋 Found existing playlist: {title}")
-                    return playlist_id
+            # Search for existing playlist (1 quota unit per page)
+            next_page_token = None
+            while True:
+                if not self.quota.can_afford(1):
+                    break
+                    
+                playlists_response = self.youtube.playlists().list(
+                    part='snippet',
+                    mine=True,
+                    maxResults=50,
+                    pageToken=next_page_token
+                ).execute()
+                self.quota.add_cost(1)
+                
+                for playlist in playlists_response.get('items', []):
+                    if playlist['snippet']['title'] == title:
+                        playlist_id = playlist['id']
+                        if self.verbose:
+                            print(f"📋 Found existing playlist: {title}")
+                        return playlist_id
+                
+                next_page_token = playlists_response.get('nextPageToken')
+                if not next_page_token:
+                    break
             
             # Create new playlist (50 quota units)
             if not self.quota.can_afford(50):
@@ -536,11 +633,7 @@ class G3kYouTubePlaylistManager:
                         print(f"📅 Filtering videos from: {start_date}")
                 else:
                     since_date = start_date
-                    # Convert ISO timestamp to Pacific time for display
-                    utc_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                    pacific_tz = pytz.timezone('US/Pacific')
-                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
-                    formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
+                    formatted_time = format_pacific_time(start_date)
                     if self.verbose:
                         print(f"📅 Filtering videos from: {formatted_time}")
             except:
@@ -721,7 +814,7 @@ def main():
         
         # Config mode
         config = load_playlist_config(args.config)
-        timestamp_file = 'json_cache/playlist_timestamps.json'
+        timestamp_file = TIMESTAMP_FILE
         timestamps = load_playlist_timestamps(timestamp_file)
         
         if args.playlist:
@@ -746,7 +839,7 @@ def main():
                 last_update = datetime.fromisoformat(timestamps[playlist_name])
                 start_date = (last_update - timedelta(hours=24)).isoformat()
             elif not start_date:
-                start_date = playlist_config.get('default_start_date', '2025-08-01')
+                start_date = playlist_config.get('default_start_date', DEFAULT_START_DATE)
             
             print(f"\n🎵 Processing playlist: {playlist_config['title']}")
             
@@ -754,13 +847,7 @@ def main():
             if len(start_date) == 10:  # YYYY-MM-DD format
                 display_start_date = start_date
             else:  # ISO timestamp format
-                try:
-                    utc_datetime = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                    pacific_tz = pytz.timezone('US/Pacific')
-                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
-                    display_start_date = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
-                except:
-                    display_start_date = start_date
+                display_start_date = format_pacific_time(start_date)
             if args.verbose:
                 print(f"📅 Start date: {display_start_date}")
             
@@ -799,13 +886,8 @@ def main():
                 total_duration_seconds = 0
                 print(f"\n🎵 {playlist_title} ({len(videos)} videos):")
                 for video in videos:
-                    # Parse UTC datetime and convert to Pacific time
-                    utc_datetime = datetime.fromisoformat(video['published_at'].replace('Z', '+00:00'))
-                    pacific_tz = pytz.timezone('US/Pacific')
-                    pacific_datetime = utc_datetime.astimezone(pacific_tz)
-                    formatted_time = pacific_datetime.strftime('%Y-%m-%d %H:%M PT')
-                    
-                    duration_str = durations.get(video['video_id'], '0:00')
+                    formatted_time = format_pacific_time(video['published_at'])
+                    duration_str = video.get('duration') or durations.get(video['video_id'], '0:00')
                     print(f"  📺 {video['channel_title']} - {video['title']} ({duration_str}) ({formatted_time})")
                     
                     # Add to total duration
