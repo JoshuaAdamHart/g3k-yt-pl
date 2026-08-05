@@ -69,6 +69,27 @@ def duration_to_seconds(dur_str: str) -> int:
             return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
     return 0
 
+def parse_filter_duration_seconds(val: Any) -> Optional[int]:
+    """Parse filter duration values (like 600, '600', '10:00', '10m', '1h30m') to integer seconds."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return int(val)
+    val_str = str(val).strip()
+    if not val_str:
+        return None
+    if val_str.isdigit():
+        return int(val_str)
+    if ':' in val_str:
+        return duration_to_seconds(val_str)
+    
+    match = re.match(r'^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$', val_str, re.IGNORECASE)
+    if match and any(match.groups()):
+        h, m, s = match.groups()
+        return (int(h) if h else 0) * 3600 + (int(m) if m else 0) * 60 + (int(s) if s else 0)
+    
+    return None
+
 class QuotaTracker:
     def __init__(self, quota_file: str = QUOTA_FILE):
         self.quota_file = quota_file
@@ -746,7 +767,20 @@ class G3kYouTubePlaylistManager:
         
         # Collect videos from all channels
         all_videos = []
-        for channel_input in channels:
+        for channel_entry in channels:
+            if isinstance(channel_entry, dict):
+                channel_input = channel_entry.get('name', '')
+                min_dur_raw = channel_entry.get('min_duration')
+                max_dur_raw = channel_entry.get('max_duration')
+                allow_regex = channel_entry.get('allow_regex')
+                exclude_regex = channel_entry.get('exclude_regex')
+            else:
+                channel_input = str(channel_entry)
+                min_dur_raw = max_dur_raw = allow_regex = exclude_regex = None
+
+            min_dur_sec = parse_filter_duration_seconds(min_dur_raw)
+            max_dur_sec = parse_filter_duration_seconds(max_dur_raw)
+
             print(f"🔍 Processing: {channel_input}")
             
             channel_id = self.get_channel_id(channel_input)
@@ -770,13 +804,37 @@ class G3kYouTubePlaylistManager:
                 
                 for video in channel_new_videos:
                     dur = durations.get(video['video_id'], '0:00')
-                    if dur in ('0:00', '0:00:00'):
+                    dur_sec = duration_to_seconds(dur)
+                    title = video.get('title', '')
+
+                    if dur in ('0:00', '0:00:00') or dur_sec == 0:
                         if self.verbose:
-                            print(f"  ⏳ Skipping zero-length video (likely scheduled/upcoming): {video['title']}")
-                    else:
-                        video['duration'] = dur
-                        all_videos.append(video)
-                        print(f"  📺 {video['title']} ({dur})")
+                            print(f"  ⏳ Skipping zero-length video (likely scheduled/upcoming): {title}")
+                        continue
+
+                    if min_dur_sec is not None and dur_sec < min_dur_sec:
+                        if self.verbose:
+                            print(f"  ⏳ Skipping video under min_duration ({dur} < {min_dur_raw}): {title}")
+                        continue
+
+                    if max_dur_sec is not None and dur_sec > max_dur_sec:
+                        if self.verbose:
+                            print(f"  ⏳ Skipping video over max_duration ({dur} > {max_dur_raw}): {title}")
+                        continue
+
+                    if allow_regex and not re.search(allow_regex, title, re.IGNORECASE):
+                        if self.verbose:
+                            print(f"  ⏳ Skipping video not matching allow_regex ('{allow_regex}'): {title}")
+                        continue
+
+                    if exclude_regex and re.search(exclude_regex, title, re.IGNORECASE):
+                        if self.verbose:
+                            print(f"  ⏳ Skipping video matching exclude_regex ('{exclude_regex}'): {title}")
+                        continue
+
+                    video['duration'] = dur
+                    all_videos.append(video)
+                    print(f"  📺 {title} ({dur})")
             
             if shutdown_requested:
                 break
@@ -836,7 +894,8 @@ def add_channel_to_playlist(config_file: str, playlist_name: str, channel: str):
         print(f"❌ Playlist '{playlist_name}' not found in config")
         return False
     
-    if channel not in config['playlists'][playlist_name]['channels']:
+    existing_channels = [c if isinstance(c, str) else c.get('name', '') for c in config['playlists'][playlist_name]['channels']]
+    if channel not in existing_channels:
         config['playlists'][playlist_name]['channels'].append(channel)
         save_playlist_config(config_file, config)
         print(f"✅ Added '{channel}' to playlist '{playlist_name}'")
