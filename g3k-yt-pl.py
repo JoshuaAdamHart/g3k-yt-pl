@@ -74,6 +74,7 @@ class QuotaTracker:
         self.quota_file = quota_file
         self.limit = 10000  # YouTube API daily quota
         self.used = 0
+        self.run_used = 0
         self.date_str = self._get_pacific_date()
         self._load_quota()
         
@@ -104,6 +105,7 @@ class QuotaTracker:
             self.date_str = current_date
             self.used = 0
         self.used += cost
+        self.run_used += cost
         self._save_quota()
         
     def can_afford(self, cost: int) -> bool:
@@ -892,64 +894,63 @@ def main():
             success, added_videos = manager.process_channels(args.channels, args.playlist_title, args.start_date, args.end_date)
             if added_videos:
                 summary[args.playlist_title] = added_videos
-            return
-        
-        # Config mode
-        config = load_playlist_config(args.config)
-        timestamp_file = TIMESTAMP_FILE
-        timestamps = load_playlist_timestamps(timestamp_file)
-        
-        if args.playlist:
-            # Process specific playlist (even if disabled)
-            playlists_to_process = [args.playlist]
         else:
-            # Process all enabled playlists
-            playlists_to_process = [name for name, config_data in config['playlists'].items() 
-                                  if not config_data.get('disabled', False)]
-        
-        for playlist_name in playlists_to_process:
-            if playlist_name not in config['playlists']:
-                print(f"❌ Playlist '{playlist_name}' not found in config")
-                continue
-                
-            playlist_config = config['playlists'][playlist_name]
+            # Config mode
+            config = load_playlist_config(args.config)
+            timestamp_file = TIMESTAMP_FILE
+            timestamps = load_playlist_timestamps(timestamp_file)
             
-            # Use timestamp as start date if no explicit start date provided
-            start_date = args.start_date
-            if not start_date and playlist_name in timestamps:
-                # Use timestamp minus 24 hours to catch videos that might have been missed
-                last_update = datetime.fromisoformat(timestamps[playlist_name])
-                start_date = (last_update - timedelta(hours=24)).isoformat()
-            elif not start_date:
-                start_date = playlist_config.get('default_start_date', DEFAULT_START_DATE)
-            
-            print(f"\n🎵 Processing playlist: {playlist_config['title']}")
-            
-            # Format start_date for display
-            if len(start_date) == 10:  # YYYY-MM-DD format
-                display_start_date = start_date
-            else:  # ISO timestamp format
-                display_start_date = format_pacific_time(start_date)
-            if args.verbose:
-                print(f"📅 Start date: {display_start_date}")
-            
-            success, added_videos = manager.process_channels(
-                playlist_config['channels'], 
-                playlist_config['title'], 
-                start_date, 
-                args.end_date
-            )
-            
-            # Collect summary data
-            if added_videos:
-                summary[playlist_config['title']] = added_videos
-            
-            # Only update timestamp if processing was successful
-            if success:
-                timestamps[playlist_name] = datetime.now().isoformat()
-                save_playlist_timestamps(timestamp_file, timestamps)
+            if args.playlist:
+                # Process specific playlist (even if disabled)
+                playlists_to_process = [args.playlist]
             else:
-                print(f"⚠️ Skipping timestamp update for {playlist_name} due to errors")
+                # Process all enabled playlists
+                playlists_to_process = [name for name, config_data in config['playlists'].items() 
+                                      if not config_data.get('disabled', False)]
+            
+            for playlist_name in playlists_to_process:
+                if playlist_name not in config['playlists']:
+                    print(f"❌ Playlist '{playlist_name}' not found in config")
+                    continue
+                    
+                playlist_config = config['playlists'][playlist_name]
+                
+                # Use timestamp as start date if no explicit start date provided
+                start_date = args.start_date
+                if not start_date and playlist_name in timestamps:
+                    # Use timestamp minus 24 hours to catch videos that might have been missed
+                    last_update = datetime.fromisoformat(timestamps[playlist_name])
+                    start_date = (last_update - timedelta(hours=24)).isoformat()
+                elif not start_date:
+                    start_date = playlist_config.get('default_start_date', DEFAULT_START_DATE)
+                
+                print(f"\n🎵 Processing playlist: {playlist_config['title']}")
+                
+                # Format start_date for display
+                if len(start_date) == 10:  # YYYY-MM-DD format
+                    display_start_date = start_date
+                else:  # ISO timestamp format
+                    display_start_date = format_pacific_time(start_date)
+                if args.verbose:
+                    print(f"📅 Start date: {display_start_date}")
+                
+                success, added_videos = manager.process_channels(
+                    playlist_config['channels'], 
+                    playlist_config['title'], 
+                    start_date, 
+                    args.end_date
+                )
+                
+                # Collect summary data
+                if added_videos:
+                    summary[playlist_config['title']] = added_videos
+                
+                # Only update timestamp if processing was successful
+                if success:
+                    timestamps[playlist_name] = datetime.now().isoformat()
+                    save_playlist_timestamps(timestamp_file, timestamps)
+                else:
+                    print(f"⚠️ Skipping timestamp update for {playlist_name} due to errors")
         
         # Print summary
         if summary:
@@ -990,6 +991,19 @@ def main():
                         print(f"  ⏱️  Total duration: {minutes}m")
         else:
             print(f"\n📋 SUMMARY - No videos were added to any playlist")
+        
+        # Print quota report
+        run_used = manager.quota.run_used
+        used = manager.quota.used
+        limit = manager.quota.limit
+        remaining = manager.quota.remaining()
+        pct_used = (used / limit) * 100 if limit > 0 else 0
+        
+        print(f"\n📊 QUOTA REPORT:")
+        print("=" * 50)
+        print(f"  • Quota used this run: {run_used:,} units")
+        print(f"  • Quota used today:    {used:,} / {limit:,} units ({pct_used:.1f}%)")
+        print(f"  • Quota remaining:     {remaining:,} units")
             
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
