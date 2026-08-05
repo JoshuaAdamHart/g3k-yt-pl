@@ -462,37 +462,7 @@ class G3kYouTubePlaylistManager:
                 print("📝 No new videos to add")
             return 0, []
         
-        # Filter out zero-length videos (likely scheduled/upcoming livestreams or premieres)
-        new_video_ids = [v['video_id'] for v in new_videos]
-        durations = self.get_video_durations(new_video_ids)
-        
-        valid_videos = []
-        zero_length_count = 0
-        for video in new_videos:
-            dur = durations.get(video['video_id'], '0:00')
-            if dur in ('0:00', '0:00:00'):
-                zero_length_count += 1
-                if self.verbose:
-                    print(f"⏳ Skipping zero-length video (likely scheduled/upcoming): {video['title']}")
-            else:
-                valid_videos.append(video)
-        
-        if zero_length_count > 0 and not self.verbose:
-            print(f"⏳ Skipped {zero_length_count} zero-length video(s) (likely scheduled/upcoming)")
-        
-        new_videos = valid_videos
-        
-        if not new_videos:
-            if self.verbose:
-                print("📝 No new videos to add (all candidates were zero-length)")
-            return 0, []
-        
-        # Show how many were filtered out
-        filtered_count = len(videos) - len(new_videos) - len([v for v in videos if v['video_id'] in existing_ids]) - zero_length_count
-        if filtered_count > 0 and self.verbose:
-            print(f"🚫 Skipped {filtered_count} previously added videos")
-        
-        print(f"➕ Adding {len(new_videos)} new videos...")
+        print(f"➕ Adding {len(new_videos)} new video(s)...")
         
         added_count = 0
         added_videos = []
@@ -529,7 +499,6 @@ class G3kYouTubePlaylistManager:
                 
                 added_count += 1
                 added_videos.append(video)
-                print(f"  ✅ {video['title']} ({video['published_at'][:10]})")
                 
                 # Progress update
                 if i % 10 == 0:
@@ -595,6 +564,9 @@ class G3kYouTubePlaylistManager:
         # Get existing videos to avoid duplicates
         existing_ids = self.get_existing_videos(playlist_id)
         
+        # Get previously added videos for this playlist
+        previously_added = self.added_videos.get(playlist_title, set())
+        
         # Collect videos from all channels
         all_videos = []
         for channel_input in channels:
@@ -611,7 +583,23 @@ class G3kYouTubePlaylistManager:
             if end_date:
                 videos = [v for v in videos if v['published_at'] <= end_date + 'T23:59:59Z']
             
-            all_videos.extend(videos)
+            # Filter candidate videos not in existing_ids or previously_added
+            channel_new_videos = [v for v in videos if v['video_id'] not in existing_ids and v['video_id'] not in previously_added]
+            
+            if channel_new_videos:
+                # Fetch durations for candidate videos from this channel
+                new_video_ids = [v['video_id'] for v in channel_new_videos]
+                durations = self.get_video_durations(new_video_ids)
+                
+                for video in channel_new_videos:
+                    dur = durations.get(video['video_id'], '0:00')
+                    if dur in ('0:00', '0:00:00'):
+                        if self.verbose:
+                            print(f"  ⏳ Skipping zero-length video (likely scheduled/upcoming): {video['title']}")
+                    else:
+                        video['duration'] = dur
+                        all_videos.append(video)
+                        print(f"  📺 {video['title']} ({dur})")
             
             if shutdown_requested:
                 break
