@@ -14,6 +14,7 @@ Add videos from multiple channels to a playlist with date filtering and quota tr
 import os
 import sys
 import json
+import csv
 import argparse
 import signal
 import re
@@ -38,6 +39,7 @@ DEFAULT_START_DATE = '2025-08-01'
 QUOTA_FILE = 'json_cache/quota.json'
 TIMESTAMP_FILE = 'json_cache/playlist_timestamps.json'
 ADDED_VIDEOS_TTL_DAYS = 7
+CSV_LOG_FILE = 'json_cache/added_videos.csv'
 
 shutdown_requested = False
 
@@ -54,6 +56,18 @@ def format_pacific_time(iso_str: str, fmt: str = '%Y-%m-%d %H:%M PT') -> str:
         return utc_dt.astimezone(pacific_tz).strftime(fmt)
     except Exception:
         return iso_str
+
+def duration_to_seconds(dur_str: str) -> int:
+    """Convert formatted duration string ('4:13' or '1:05:30') to total seconds."""
+    if not dur_str:
+        return 0
+    if ':' in dur_str:
+        parts = dur_str.split(':')
+        if len(parts) == 2:  # MM:SS
+            return int(parts[0]) * 60 + int(parts[1])
+        elif len(parts) == 3:  # HH:MM:SS
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    return 0
 
 class QuotaTracker:
     def __init__(self, quota_file: str = QUOTA_FILE):
@@ -112,11 +126,35 @@ class G3kYouTubePlaylistManager:
         self.cache_file = 'json_cache/cache.json'
         self.channel_cache_file = 'json_cache/channels.json'
         self.added_videos_file = 'json_cache/added_videos.json'
+        self.csv_log_file = CSV_LOG_FILE
         self.youtube = None
         self.quota = QuotaTracker()
         self.cache = self._load_cache()
         self.channel_cache = self._load_channel_cache()
         self.added_videos = self._load_added_videos()
+        
+    def _log_added_video_csv(self, playlist_title: str, video: Dict[str, Any]):
+        """Append added video entry to CSV log file."""
+        file_exists = os.path.exists(self.csv_log_file) and os.path.getsize(self.csv_log_file) > 0
+        try:
+            with open(self.csv_log_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(['timestamp', 'playlist_name', 'channel_name', 'video_name', 'duration_seconds'])
+                
+                now_str = datetime.now().isoformat()
+                dur_str = video.get('duration', '0:00')
+                duration_seconds = duration_to_seconds(dur_str)
+                
+                writer.writerow([
+                    now_str,
+                    playlist_title,
+                    video.get('channel_title', ''),
+                    video.get('title', ''),
+                    duration_seconds
+                ])
+        except Exception as e:
+            print(f"Warning: Could not log video to CSV: {e}")
         
     def _load_cache(self) -> Dict[str, Any]:
         if os.path.exists(self.cache_file):
@@ -634,6 +672,9 @@ class G3kYouTubePlaylistManager:
                 if playlist_title not in self.added_videos:
                     self.added_videos[playlist_title] = {}
                 self.added_videos[playlist_title][video['video_id']] = datetime.now().isoformat()
+                
+                # Log video entry to CSV log file
+                self._log_added_video_csv(playlist_title, video)
                 
                 added_count += 1
                 added_videos.append(video)
