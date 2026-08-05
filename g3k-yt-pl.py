@@ -385,8 +385,11 @@ class G3kYouTubePlaylistManager:
                 self.quota.add_cost(1)
                 
                 stop_fetching = False
-                for item in playlist_response['items']:
+                for item in playlist_response.get('items', []):
                     video_date = item['snippet']['publishedAt']
+                    item_channel_title = item['snippet'].get('channelTitle') or channel_title
+                    if item_channel_title and item_channel_title != channel_id:
+                        channel_title = item_channel_title
                     
                     # Stop fetching if we've gone past our start date (videos are newest first)
                     if since_date and video_date < since_date:
@@ -399,7 +402,7 @@ class G3kYouTubePlaylistManager:
                         'video_id': item['snippet']['resourceId']['videoId'],
                         'title': item['snippet']['title'],
                         'published_at': video_date,
-                        'channel_title': channel_title,
+                        'channel_title': item_channel_title,
                         'channel_id': channel_id
                     })
                 
