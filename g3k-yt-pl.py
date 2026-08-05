@@ -462,8 +462,33 @@ class G3kYouTubePlaylistManager:
                 print("📝 No new videos to add")
             return 0, []
         
+        # Filter out zero-length videos (likely scheduled/upcoming livestreams or premieres)
+        new_video_ids = [v['video_id'] for v in new_videos]
+        durations = self.get_video_durations(new_video_ids)
+        
+        valid_videos = []
+        zero_length_count = 0
+        for video in new_videos:
+            dur = durations.get(video['video_id'], '0:00')
+            if dur in ('0:00', '0:00:00'):
+                zero_length_count += 1
+                if self.verbose:
+                    print(f"⏳ Skipping zero-length video (likely scheduled/upcoming): {video['title']}")
+            else:
+                valid_videos.append(video)
+        
+        if zero_length_count > 0 and not self.verbose:
+            print(f"⏳ Skipped {zero_length_count} zero-length video(s) (likely scheduled/upcoming)")
+        
+        new_videos = valid_videos
+        
+        if not new_videos:
+            if self.verbose:
+                print("📝 No new videos to add (all candidates were zero-length)")
+            return 0, []
+        
         # Show how many were filtered out
-        filtered_count = len(videos) - len(new_videos) - len([v for v in videos if v['video_id'] in existing_ids])
+        filtered_count = len(videos) - len(new_videos) - len([v for v in videos if v['video_id'] in existing_ids]) - zero_length_count
         if filtered_count > 0 and self.verbose:
             print(f"🚫 Skipped {filtered_count} previously added videos")
         
