@@ -37,6 +37,7 @@ SCOPES = ['https://www.googleapis.com/auth/youtube']
 DEFAULT_START_DATE = '2025-08-01'
 QUOTA_FILE = 'json_cache/quota.json'
 TIMESTAMP_FILE = 'json_cache/playlist_timestamps.json'
+ADDED_VIDEOS_TTL_DAYS = 7
 
 shutdown_requested = False
 
@@ -126,23 +127,61 @@ class G3kYouTubePlaylistManager:
                 pass
         return {'channels': {}, 'last_run': None}
     
-    def _load_added_videos(self) -> Dict[str, set]:
+    def _load_added_videos(self) -> Dict[str, Dict[str, str]]:
+        """Load added videos mapping: playlist_title -> {video_id: timestamp_iso} and prune entries older than ADDED_VIDEOS_TTL_DAYS."""
+        now = datetime.now()
+        cutoff = now - timedelta(days=ADDED_VIDEOS_TTL_DAYS)
+        added_data: Dict[str, Dict[str, str]] = {}
+        pruned_count = 0
+
         if os.path.exists(self.added_videos_file):
             try:
                 with open(self.added_videos_file, 'r') as f:
-                    data = json.load(f)
-                    # Convert lists back to sets
-                    return {playlist: set(videos) for playlist, videos in data.items()}
-            except:
+                    raw_data = json.load(f)
+                    
+                for playlist, items in raw_data.items():
+                    added_data[playlist] = {}
+                    if isinstance(items, list):
+                        # Convert legacy list format to timestamp dict
+                        for vid in items:
+                            added_data[playlist][vid] = now.isoformat()
+                    elif isinstance(items, dict):
+                        for vid, ts_str in items.items():
+                            try:
+                                ts = datetime.fromisoformat(ts_str)
+                                if ts >= cutoff:
+                                    added_data[playlist][vid] = ts_str
+                                else:
+                                    pruned_count += 1
+                            except Exception:
+                                added_data[playlist][vid] = now.isoformat()
+            except Exception:
                 pass
-        return {}
+                
+        if pruned_count > 0 and self.verbose:
+            print(f"🧹 Pruned {pruned_count} tracking entry/entries older than {ADDED_VIDEOS_TTL_DAYS} days from added_videos.json")
+            
+        return added_data
     
     def _save_added_videos(self):
+        """Save added videos tracking to JSON, filtering out entries older than ADDED_VIDEOS_TTL_DAYS."""
         try:
-            # Convert sets to lists for JSON serialization
-            data = {playlist: list(videos) for playlist, videos in self.added_videos.items()}
+            now = datetime.now()
+            cutoff = now - timedelta(days=ADDED_VIDEOS_TTL_DAYS)
+            pruned_data = {}
+            for playlist, items in self.added_videos.items():
+                playlist_items = {}
+                for vid, ts_str in items.items():
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                        if ts >= cutoff:
+                            playlist_items[vid] = ts_str
+                    except Exception:
+                        playlist_items[vid] = ts_str
+                pruned_data[playlist] = playlist_items
+
             with open(self.added_videos_file, 'w') as f:
-                json.dump(data, f, indent=2)
+                json.dump(pruned_data, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save added videos tracking: {e}")
     
@@ -545,10 +584,9 @@ class G3kYouTubePlaylistManager:
     
     def add_videos_to_playlist(self, playlist_id: str, playlist_title: str, videos: List[Dict[str, Any]], existing_ids: set):
         global shutdown_requested
-        import time
         
-        # Get previously added videos for this playlist
-        previously_added = self.added_videos.get(playlist_title, set())
+        # Get previously added video IDs for this playlist
+        previously_added = set(self.added_videos.get(playlist_title, {}).keys())
         
         # Filter out existing videos and previously added videos, then sort by date
         new_videos = [v for v in videos if v['video_id'] not in existing_ids and v['video_id'] not in previously_added]
@@ -589,10 +627,10 @@ class G3kYouTubePlaylistManager:
                 ).execute()
                 self.quota.add_cost(50)
                 
-                # Track this video as added to this playlist
+                # Track this video as added to this playlist with current timestamp
                 if playlist_title not in self.added_videos:
-                    self.added_videos[playlist_title] = set()
-                self.added_videos[playlist_title].add(video['video_id'])
+                    self.added_videos[playlist_title] = {}
+                self.added_videos[playlist_title][video['video_id']] = datetime.now().isoformat()
                 
                 added_count += 1
                 added_videos.append(video)
@@ -658,7 +696,7 @@ class G3kYouTubePlaylistManager:
         existing_ids = self.get_existing_videos(playlist_id)
         
         # Get previously added videos for this playlist
-        previously_added = self.added_videos.get(playlist_title, set())
+        previously_added = set(self.added_videos.get(playlist_title, {}).keys())
         
         # Collect videos from all channels
         all_videos = []
