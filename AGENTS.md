@@ -1,6 +1,6 @@
 # G3K YouTube Playlist Manager - AGENTS Configuration
 
-G3K YouTube Playlist Manager (`g3k-yt-pl`) is a personal Python CLI tool that automatically adds videos from multiple YouTube channels to YouTube playlists, with intelligent date filtering, API quota tracking, and graceful failure handling. It was built as a "vibe-coded" final project for Stanford Continuing Studies course TECH 152 (A Crash Course in Artificial Intelligence) using Amazon Q Developer for AI-assisted development. The tool solves the problem of consuming YouTube content in chronological publication order — similar to a podcast player — without manually queuing videos.
+G3K YouTube Playlist Manager (`g3k-yt-pl`) is a personal Python CLI tool that automatically adds videos from multiple YouTube channels to YouTube playlists, with intelligent date filtering, API quota tracking, and graceful failure handling. It was built as a "vibe-coded" final project for Stanford Continuing Studies course TECH 152 (A Crash Course in Artificial Intelligence). Development was started as an experiment with Amazon Q Developer (now Kiro) and has since switched to using Google's Antigravity IDE for ongoing AI-assisted pair programming. The tool solves the problem of consuming YouTube content in chronological publication order — similar to a podcast player — without manually queuing videos.
 
 The project is intentionally minimal: a single Python file (`g3k-yt-pl.py`) with supporting infrastructure files. All logic lives in one place. There is no package structure, no test suite, and no CI/CD pipeline.
 
@@ -27,7 +27,7 @@ The project is intentionally minimal: a single Python file (`g3k-yt-pl.py`) with
 
 ```
 g3k-yt-pl/
-├── g3k-yt-pl.py              # ONLY source file — 807 lines, all application logic
+├── g3k-yt-pl.py              # ONLY source file — ~1000 lines, all application logic
 ├── requirements.txt           # Pinned dependencies (22 packages including transitive)
 ├── Makefile                   # All standard operations (setup, run, clean, help)
 ├── update-all.sh              # Batch runner: calls ./g3k-yt-pl.py directly via shebang
@@ -148,8 +148,8 @@ QuotaTracker              # Tracks API quota: used, limit(10000), can_afford(), 
 G3kYouTubePlaylistManager # Main class — all YouTube API interactions
   __init__()              # Creates json_cache/, initializes all cache files
   authenticate()          # OAuth flow, builds self.youtube API client
-  get_channel_id()        # Resolves name/URL/ID → channel ID (with caching)
-  get_channel_videos()    # Fetches uploads playlist (with 24h cache + date filtering)
+  get_channel_id()        # Resolves name/URL/ID/handle → channel ID (with caching)
+  get_channel_videos()    # Fetches uploads playlist (with live fetch + date filtering)
   get_video_durations()   # Batch fetches ISO 8601 durations, converts to MM:SS/HH:MM:SS
   _parse_duration()       # Converts PT4M13S → "4:13" format
   get_or_create_playlist()# Finds existing or creates new YouTube playlist
@@ -171,10 +171,8 @@ The `get_channel_id()` method uses this priority chain (important to understand 
 1. **Direct channel ID**: If input starts with `UC` AND is exactly 24 characters → return as-is, no API call
 2. **Cache lookup**: Check `json_cache/channels.json` → return cached ID if found
 3. **URL with `/channel/` path**: Extract ID from URL directly, cache it, no API call
-4. **URL with `/@handle` or `/c/` path**: Falls through to search (costs 100 quota units) — note: handle URLs are NOT parsed directly
+4. **Handle lookup (`@handle` or `youtube.com/@handle`)**: Calls `youtube.channels().list(forHandle=handle)` costing **1 quota unit**, result cached permanently
 5. **Channel name search**: `youtube.search().list()` call costing 100 units, result cached permanently
-
-**Gotcha:** YouTube `/@handle` URLs (e.g., `https://www.youtube.com/@MKBHD`) are NOT parsed for the handle — they fall through to the expensive search. To avoid 100-unit cost, use the channel ID directly (e.g., `UC2C_jShtL725hvbm1arSV9w`) or a `/channel/UCxxx` URL.
 
 ### Caching Architecture
 
@@ -202,7 +200,8 @@ self.quota.add_cost(100)
 
 **Quota costs (from actual code):**
 - `youtube.search().list()` — 100 units (channel name search)
-- `youtube.channels().list()` — 1 unit
+- `youtube.channels().list(forHandle=...)` — 1 unit (channel handle lookup)
+- `youtube.channels().list(id=...)` — 1 unit
 - `youtube.playlistItems().list()` — 1 unit per page (50 items/page)
 - `youtube.playlists().list()` — 1 unit
 - `youtube.playlists().insert()` — 50 units (create playlist)
