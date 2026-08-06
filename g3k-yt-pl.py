@@ -794,13 +794,8 @@ class G3kYouTubePlaylistManager:
         
         # Check if quota was exceeded during video addition
         if self.quota.used >= self.quota.limit:
-            print("⚠️ Quota exceeded - not updating cache timestamp")
+            print("⚠️ Quota exceeded - not updating playlist timestamp")
             return False, added_videos
-        
-        # Update last run timestamp
-        self.cache['last_run'] = datetime.now().isoformat()
-        self._save_cache()
-        
         
         if self.verbose:
             if added_count > 0:
