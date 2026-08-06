@@ -146,13 +146,11 @@ class G3kYouTubePlaylistManager:
         self.verbose = verbose
         self.token_file = 'token.json'
         os.makedirs('json_cache', exist_ok=True)
-        self.cache_file = 'json_cache/cache.json'
         self.channel_cache_file = 'json_cache/channels.json'
         self.added_videos_file = 'json_cache/added_videos.json'
         self.csv_log_file = CSV_LOG_FILE
         self.youtube = None
         self.quota = QuotaTracker()
-        self.cache = self._load_cache()
         self.channel_cache = self._load_channel_cache()
         self.added_videos = self._load_added_videos()
         
@@ -179,15 +177,7 @@ class G3kYouTubePlaylistManager:
         except Exception as e:
             print(f"Warning: Could not log video to CSV: {e}")
         
-    def _load_cache(self) -> Dict[str, Any]:
-        if os.path.exists(self.cache_file):
-            try:
-                with open(self.cache_file, 'r') as f:
-                    return json.load(f)
-            except:
-                pass
-        return {'channels': {}, 'last_run': None}
-    
+
     def _load_added_videos(self) -> Dict[str, Dict[str, str]]:
         """Load added videos mapping: playlist_title -> {video_id: timestamp_iso} and prune entries older than ADDED_VIDEOS_TTL_DAYS."""
         now = datetime.now()
@@ -255,13 +245,7 @@ class G3kYouTubePlaylistManager:
                 pass
         return {}
     
-    def _save_cache(self):
-        try:
-            with open(self.cache_file, 'w') as f:
-                json.dump(self.cache, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Could not save cache: {e}")
-    
+
     def _save_channel_cache(self):
         try:
             with open(self.channel_cache_file, 'w') as f:
@@ -374,27 +358,6 @@ class G3kYouTubePlaylistManager:
         return None
     
     def get_channel_videos(self, channel_id: str, since_date: Optional[str] = None) -> List[Dict[str, Any]]:
-        # Check cache first
-        if channel_id in self.cache['channels']:
-            cached_data = self.cache['channels'][channel_id]
-            cache_time = datetime.fromisoformat(cached_data['timestamp'])
-            
-            # Check if cache is still valid (24 hours) and covers the requested date range
-            cache_valid = datetime.now() - cache_time < timedelta(hours=24)
-            date_range_covered = True
-            
-            if since_date and 'oldest_video_date' in cached_data:
-                # If we want videos since a date that's older than our cached range, need to fetch
-                date_range_covered = since_date >= cached_data['oldest_video_date']
-            
-            if cache_valid and date_range_covered:
-                print(f"📦 Using cached data for channel {channel_id}")
-                # Filter cached videos by date if needed
-                videos = cached_data['videos']
-                if since_date:
-                    videos = [v for v in videos if v['published_at'] >= since_date]
-                return videos
-        
         if not self.quota.can_afford(1):
             print(f"⚠️ Not enough quota to fetch channel videos")
             return []
@@ -404,8 +367,7 @@ class G3kYouTubePlaylistManager:
             # Derive uploads playlist ID if channel_id starts with UC (saves 1 API quota unit)
             if channel_id.startswith('UC') and len(channel_id) == 24:
                 uploads_playlist_id = 'UU' + channel_id[2:]
-                cached_info = self.cache.get('channels', {}).get(channel_id, {})
-                channel_title = cached_info.get('channel_name', channel_id)
+                channel_title = channel_id
             else:
                 if not self.quota.can_afford(1):
                     print(f"⚠️ Not enough quota to fetch channel details")
@@ -479,25 +441,6 @@ class G3kYouTubePlaylistManager:
             
             # Sort videos by publication date (oldest first)
             videos.sort(key=lambda x: x['published_at'])
-            
-            # Calculate date range
-            oldest_date = videos[0]['published_at'] if videos else None
-            newest_date = videos[-1]['published_at'] if videos else None
-            
-            # Cache the results
-            cache_entry = {
-                'channel_name': channel_title,
-                'videos': videos,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            if oldest_date:
-                cache_entry['oldest_video_date'] = oldest_date
-            if newest_date:
-                cache_entry['newest_video_date'] = newest_date
-                
-            self.cache['channels'][channel_id] = cache_entry
-            self._save_cache()
             
         except HttpError as e:
             if 'quotaExceeded' in str(e):
@@ -745,11 +688,7 @@ class G3kYouTubePlaylistManager:
                 print(f"❌ Invalid start date format: {start_date}")
                 return False, []
         
-        # Check for new videos since last run
-        if not start_date and self.cache.get('last_run'):
-            since_date = self.cache['last_run']
-            print(f"📅 Checking for new videos since last run: {since_date[:10]}")
-        
+    
         if self.verbose:
             print(f"🎯 Target playlist: {playlist_title}")
             print(f"📊 Starting quota: {self.quota.remaining()}")

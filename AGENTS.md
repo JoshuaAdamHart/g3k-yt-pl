@@ -41,8 +41,6 @@ g3k-yt-pl/
 ├── token.json                 # Auto-generated OAuth token after first auth (git-ignored)
 │
 └── json_cache/                # Runtime data directory (auto-created, git-ignored)
-    ├── playlists.json         # User-defined playlist config (must be created by user)
-    ├── cache.json             # Video metadata cache with 24-hour TTL
     ├── channels.json          # Channel name/URL → channel ID mappings (permanent cache)
     ├── added_videos.json      # Per-playlist sets of video IDs already added (duplicate prevention)
     └── playlist_timestamps.json  # Per-playlist ISO timestamps of last successful run
@@ -182,14 +180,11 @@ The `get_channel_id()` method uses this priority chain (important to understand 
 
 All cache files are JSON, stored in `json_cache/`, auto-created on first run:
 
-| File | Key | TTL | Purpose |
-|------|-----|-----|---------|
-| `cache.json` | `channels[channel_id]` | 24 hours | Video metadata per channel |
 | `channels.json` | channel input string | Permanent | Channel name/URL → ID mapping |
 | `added_videos.json` | playlist title (string) | Permanent | Video IDs added to prevent duplicates |
 | `playlist_timestamps.json` | playlist config key | Updated on success | Last successful run time per playlist |
 
-**Cache invalidation logic in `get_channel_videos()`:** Cache is bypassed if (a) cache is older than 24 hours OR (b) the requested `since_date` is older than `cached_data['oldest_video_date']`. This means requesting a wider date range than what's cached forces a fresh API call.
+**Note on video fetching:** Video metadata caching (`cache.json`) has been eliminated. The script always queries the live YouTube API for uploads since `since_date`. Because API responses return newest videos first, queries stop as soon as a video older than `since_date` is encountered (costing only 1 quota unit for normal incremental runs).
 
 **`added_videos.json` serialization note:** In-memory values are `Dict[str, set]` but JSON cannot serialize sets — they are converted to lists on write and back to sets on read. Do not break this pattern.
 
@@ -324,7 +319,6 @@ When running in config mode without `--start-date`:
 | `Quota exceeded` | Hit 10,000 unit daily limit | Wait until midnight Pacific; tool will resume from last timestamp |
 | Authentication errors | `token.json` expired/corrupted | Delete `token.json`, re-run to trigger fresh OAuth flow |
 | Import errors on run | `venv/` not set up | Run `make setup` |
-| Cache returns stale data | Cache within 24h but date range changed | Delete `json_cache/cache.json` to force fresh fetch |
 | Duplicate videos not prevented | `added_videos.json` corrupted | Delete `json_cache/added_videos.json` (will re-check against live playlist) |
 | Wrong start date used | Timestamp file has stale entry | Delete the key from `json_cache/playlist_timestamps.json` or use `--start-date` |
 | `./g3k-yt-pl.py: Permission denied` | Shebang script not executable | Run `chmod +x g3k-yt-pl.py` |
@@ -332,7 +326,7 @@ When running in config mode without `--start-date`:
 ### Performance Characteristics
 
 - **Channel search** (name/handle): 100 quota units, cached permanently after first lookup
-- **Video fetching**: 1 unit per 50 videos; cached 24 hours; early-stop when videos older than `since_date` are encountered (no need to fetch entire history)
+- **Video fetching**: 1 unit per 50 videos; live fetch with early-stop when videos older than `since_date` are encountered (typically 1 unit per channel for incremental updates)
 - **Video addition**: 50 units each + 0.5s sleep = ~100 videos/day maximum within quota
 - **Large backlogs**: An 800-video backlog requires 40,000 quota units = 4 days of processing
 - **Batch processing**: `get_video_durations()` fetches durations in batches of 50 (API maximum) for the end-of-run summary
