@@ -237,7 +237,7 @@ class G3kYouTubePlaylistManager:
             print(f"Warning: Could not save added videos tracking: {e}")
     
     def get_videos_added_today_count(self) -> int:
-        """Calculate total number of videos added today (US/Pacific date)."""
+        """Calculate total number of videos added today in US/Pacific date."""
         pacific_tz = pytz.timezone('US/Pacific')
         today_pacific = datetime.now(pacific_tz).strftime('%Y-%m-%d')
         count = 0
