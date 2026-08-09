@@ -236,6 +236,27 @@ class G3kYouTubePlaylistManager:
         except Exception as e:
             print(f"Warning: Could not save added videos tracking: {e}")
     
+    def get_videos_added_today_count(self) -> int:
+        """Calculate total number of videos added today (US/Pacific date)."""
+        pacific_tz = pytz.timezone('US/Pacific')
+        today_pacific = datetime.now(pacific_tz).strftime('%Y-%m-%d')
+        count = 0
+        
+        for playlist_videos in self.added_videos.values():
+            if isinstance(playlist_videos, dict):
+                for vid, ts_str in playlist_videos.items():
+                    try:
+                        ts_dt = datetime.fromisoformat(ts_str)
+                        if ts_dt.tzinfo is None:
+                            ts_dt = ts_dt.astimezone()
+                        ts_pacific_date = ts_dt.astimezone(pacific_tz).strftime('%Y-%m-%d')
+                        if ts_pacific_date == today_pacific:
+                            count += 1
+                    except Exception:
+                        pass
+        return count
+
+    
     def _load_channel_cache(self) -> Dict[str, str]:
         if os.path.exists(self.channel_cache_file):
             try:
@@ -872,6 +893,7 @@ def main():
     
     try:
         manager = G3kYouTubePlaylistManager(args.credentials, verbose=args.verbose)
+        start_time = time.time()
         summary = {}  # Track added videos for final summary
         
         # Add channel mode
@@ -946,10 +968,15 @@ def main():
                     print(f"⚠️ Skipping timestamp update for {playlist_name} due to errors")
         
         # Print summary
+        run_added_count = sum(len(videos) for videos in summary.values()) if summary else 0
+        today_added_count = manager.get_videos_added_today_count()
+        
+        print(f"\n📋 SUMMARY:")
+        print("=" * 50)
+        print(f"  • Videos added this run:    {run_added_count}")
+        print(f"  • Total videos added today: {today_added_count}")
+        
         if summary:
-            print(f"\n📋 SUMMARY - Videos Added:")
-            print("=" * 50)
-            
             # Collect all video IDs for duration lookup
             all_video_ids = []
             for videos in summary.values():
@@ -982,8 +1009,6 @@ def main():
                         print(f"  ⏱️  Total duration: {hours}h {minutes}m")
                     else:
                         print(f"  ⏱️  Total duration: {minutes}m")
-        else:
-            print(f"\n📋 SUMMARY - No videos were added to any playlist")
         
         # Print quota report
         run_used = manager.quota.run_used
@@ -992,11 +1017,26 @@ def main():
         remaining = manager.quota.remaining()
         pct_used = (used / limit) * 100 if limit > 0 else 0
         
+        elapsed_sec = int(time.time() - start_time)
+        hours, remainder = divmod(elapsed_sec, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            runtime_str = f"{hours}h {minutes}m {seconds}s"
+        elif minutes > 0:
+            runtime_str = f"{minutes}m {seconds}s"
+        else:
+            runtime_str = f"{seconds}s"
+            
+        pacific_tz = pytz.timezone('US/Pacific')
+        completion_str = datetime.now(pacific_tz).strftime('%Y-%m-%d %H:%M:%S PT')
+        
         print(f"\n📊 QUOTA REPORT:")
         print("=" * 50)
         print(f"  • Quota used this run: {run_used:,} units")
         print(f"  • Quota used today:    {used:,} / {limit:,} units ({pct_used:.1f}%)")
         print(f"  • Quota remaining:     {remaining:,} units")
+        print(f"  • Total runtime:       {runtime_str}")
+        print(f"  • Completed at:        {completion_str}")
             
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
