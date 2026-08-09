@@ -1032,11 +1032,13 @@ def main():
         
         print(f"\n📊 QUOTA REPORT:")
         print("=" * 50)
-        print(f"  • Quota used this run: {run_used:,} units")
-        print(f"  • Quota used today:    {used:,} / {limit:,} units ({pct_used:.1f}%)")
-        print(f"  • Quota remaining:     {remaining:,} units")
-        print(f"  • Total runtime:       {runtime_str}")
-        print(f"  • Completed at:        {completion_str}")
+        print(f"  • Videos added this run:  {run_added_count}")
+        print(f"  • Total videos added today: {today_added_count}")
+        print(f"  • Quota used this run:    {run_used:,} units")
+        print(f"  • Quota used today:       {used:,} / {limit:,} units ({pct_used:.1f}%)")
+        print(f"  • Quota remaining:        {remaining:,} units")
+        print(f"  • Total runtime:          {runtime_str}")
+        print(f"  • Completed at:           {completion_str}")
             
     except KeyboardInterrupt:
         print("\n👋 Stopped gracefully")
