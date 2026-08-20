@@ -7,7 +7,7 @@ set -euo pipefail
 
 FORCE=""
 NIGHTLY_DONE_DATE=""
-DEFAULT_SLEEP_SECS=10800 # 3 hours
+DEFAULT_SLEEP_SECS=${DEFAULT_SLEEP_SECS:-10800} # 3 hours
 
 # Helper function to invoke g3k-hr if available, else fallback to horizontal line
 hr() {
@@ -26,6 +26,7 @@ do_sleep() {
     else
         sleep "$secs" || FORCE=1
     fi
+    echo "" # Clear prompt line from g3k-sleep
 }
 
 # Helper function to calculate sleep duration for the next cycle
@@ -36,7 +37,9 @@ get_sleep_secs() {
     
     # Target 23:55:05 today using BSD date (macOS) syntax to ensure sleep lands comfortably past 23:55:00
     local target_2355
-    if target_2355=$(date -v23H -v55M -v05S +%s 2>/dev/null); then
+    target_2355=$(date -v23H -v55M -v05S +%s 2>/dev/null || echo "")
+    
+    if [[ -n "$target_2355" ]]; then
         local diff_2355=$(( target_2355 - now_epoch ))
         # If 23:55 is coming up within the next 3 hours (10800s), cap sleep duration to land at 23:55:05
         if [[ $diff_2355 -gt 0 && $diff_2355 -lt $DEFAULT_SLEEP_SECS ]]; then
@@ -57,10 +60,12 @@ while true; do
     echo "[YT-LOOP] $(date)"
     
     TODAY=$(date +%Y-%m-%d)
-    HOUR=$(date +%H | sed -e 's/^0*//')
-    [ -z "$HOUR" ] && HOUR=0
-    MINUTE=$(date +%M | sed -e 's/^0*//')
-    [ -z "$MINUTE" ] && MINUTE=0
+    
+    RAW_HOUR=$(date +%H)
+    HOUR=$(( 10#$RAW_HOUR ))
+    
+    RAW_MIN=$(date +%M)
+    MINUTE=$(( 10#$RAW_MIN ))
     
     # Execution conditions:
     # 1. Manual interrupt/force (FORCE is non-empty)
