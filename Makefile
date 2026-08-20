@@ -1,4 +1,4 @@
-.PHONY: setup install run run-config update-all clean help
+.PHONY: setup install run run-config update-all update-all-loop clean help
 
 setup: ## Create virtual environment and install dependencies
 	python3 -m venv .venv
@@ -16,6 +16,9 @@ run-config: ## Run with config file (requires PLAYLIST=name, optional CONFIG=fil
 
 update-all: ## Update all playlists from config file
 	./update-all.sh
+
+update-all-loop: ## Run update-all continuous loop (daytime hourly + 11:55 PM nightly)
+	./update-all-loop.sh
 
 clean: ## Remove virtual environment and cache files
 	rm -rf .venv/
