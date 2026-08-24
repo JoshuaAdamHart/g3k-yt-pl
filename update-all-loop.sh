@@ -7,7 +7,7 @@ set -euo pipefail
 
 FORCE=""
 NIGHTLY_DONE_DATE=""
-DEFAULT_SLEEP_SECS=${DEFAULT_SLEEP_SECS:-10800} # 3 hours
+DEFAULT_SLEEP_SECS=${DEFAULT_SLEEP_SECS:-7200} # 2 hours
 
 # Helper function to invoke g3k-hr if available, else fallback to horizontal line
 hr() {
@@ -18,15 +18,52 @@ hr() {
     fi
 }
 
-# Helper function to invoke g3k-sleep if available, else standard sleep
+# Interactive countdown function:
+# - Pressing 'q' or 'Q': exits the script immediately
+# - Pressing Enter: interrupts countdown and forces an immediate update run
+# - Any other character: ignored (continues countdown)
 do_sleep() {
     local secs="$1"
-    if command -v g3k-sleep &>/dev/null; then
-        g3k-sleep "$secs" 1 || FORCE=1
-    else
-        sleep "$secs" || FORCE=1
-    fi
-    echo "" # Clear prompt line from g3k-sleep
+    local start_t end_t current_t time_left key
+    
+    start_t=$(date +%s)
+    end_t=$(( start_t + secs ))
+    
+    while true; do
+        current_t=$(date +%s)
+        time_left=$(( end_t - current_t ))
+        if (( current_t >= end_t )); then
+            echo ""
+            return 0
+        fi
+        
+        # Format HH:MM:SS countdown string
+        local ss=$(( time_left % 60 ))
+        local mm_tmp=$(( (time_left - ss) / 60 ))
+        local mm=$(( mm_tmp % 60 ))
+        local hh=$(( (mm_tmp - mm) / 60 ))
+        local time_str
+        time_str=$(printf "%02d:%02d" $mm $ss)
+        if (( hh > 0 )); then
+            time_str="${hh}:${time_str}"
+        fi
+        
+        # Display countdown on terminal line
+        printf "\r\033[K[YT-LOOP] [%s] Waiting (Enter=Run now, q=Quit)... > " "$time_str"
+        
+        # Read 1 character with 1 second timeout
+        if read -r -n 1 -s -t 1 key 2>/dev/null; then
+            if [[ "$key" == "q" || "$key" == "Q" ]]; then
+                echo -e "\n[YT-LOOP] Quit requested ('q'). Exiting."
+                exit 0
+            elif [[ -z "$key" ]]; then
+                echo -e "\n[YT-LOOP] Interrupted by Enter key. Running update..."
+                FORCE=1
+                return 0
+            fi
+            # Spurious characters (letters, numbers, spaces) are ignored
+        fi
+    done
 }
 
 # Helper function to calculate sleep duration for the next cycle
@@ -49,10 +86,9 @@ get_sleep_secs() {
     echo "$sleep_secs"
 }
 
-# Start with countdown on launch. Pressing key during countdown sets FORCE=1 to run immediately.
+# Start with countdown on launch. Pressing Enter forces immediate run; 'q' quits; other keys ignored.
 SLEEP_SECS=$(get_sleep_secs)
 hr
-echo -n "[YT-LOOP] $(date)..."
 do_sleep "$SLEEP_SECS"
 
 while true; do
@@ -92,7 +128,6 @@ while true; do
     fi
     
     hr
-    echo -n "[YT-LOOP] $(date)..."
     FORCE=""
     
     SLEEP_SECS=$(get_sleep_secs)
